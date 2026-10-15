@@ -1,5 +1,7 @@
 # allocators
 
+[![CI](https://github.com/Kronuz/allocators/actions/workflows/ci.yml/badge.svg)](https://github.com/Kronuz/allocators/actions/workflows/ci.yml)
+
 A small **memory-allocation toolkit** for C++20: an STL-compatible allocator
 template, a deque-backed memory pool, and an optional global `new` / `delete`
 override that accounts every byte. Extracted from
