@@ -72,6 +72,7 @@ Without `ALLOCATORS_TRACKED_MEM`, the counters read `0`.
   option.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the size headers, the counters, and the
   pool.
+- [examples/demo.cc](examples/demo.cc): the counters in action.
 - [AGENTS.md](AGENTS.md): repository map, invariants, and traps.
 
 ## 🛠️ Building and testing

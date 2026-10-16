@@ -12,6 +12,7 @@ allocators.h            Declares allocator<T, Backend>, vanilla_allocator, track
 allocators.cc           Defines the malloc/free wrappers, the two backends, the byte counters, and (tracking on) the global new/delete override. Nearly verbatim; see "Standalone vs. Xapiand".
 allocators_config.h.in  CMake template for the generated allocators_config.h: #cmakedefine's XAPIAND_TRACKED_MEM and HAS_THREAD_LOCAL. Replaces Xapiand's "config.h".
 test/test.cc            Runnable smoke test: detects tracking mode at runtime, checks the counters, the allocator over both backends, and the memory pool.
+examples/demo.cc        The counters following strings and a tracked std::map (allocators_demo, tracked build).
 CMakeLists.txt          STATIC library `allocators` (+ alias allocators::allocators); ALLOCATORS_TRACKED_MEM option; thread_local probe; configure_file; CTest test `allocators`.
 LICENSE                 MIT, Copyright (c) 2015-2019 Dubalu LLC.
 README.md                    What it is, install, quick start.
@@ -43,8 +44,10 @@ cmake -B build-on  -DALLOCATORS_TRACKED_MEM=ON  && cmake --build build-on  && ct
 cmake -B build-off                              && cmake --build build-off && ctest --test-dir build-off --output-on-failure
 ```
 
-The single `test/test.cc` covers both: it probes at runtime whether the build
-tracks memory and asserts the contract for that mode.
+`test/test.cc` covers both: it probes at runtime whether the build tracks memory
+and asserts the contract for that mode. CTest runs it twice, as `allocators`
+(the configured mode) and `allocators_tracked` (a second library built with
+tracking), and `ALLOCATORS_EXPECT_TRACKED` makes each fail if the probe disagrees.
 
 ## The config decouple
 
@@ -114,8 +117,8 @@ other local include. Only `<config.h>` had to go.
 - **Add a backend.** Write a class with static `allocate(size_t)` /
   `deallocate(void*)` and pass it as the second template arg to
   `allocator<T, Backend>`. Nothing else needs to change.
-- **Always extend the smoke test.** `test/test.cc` is the only executable check.
-  It must keep passing in **both** option states; a new assertion that only holds
+- **Always extend the smoke test.** `test/test.cc` is the only executable check,
+  run in both modes. It must keep passing in **both** option states; a new assertion that only holds
   under tracking belongs behind the `tracked` runtime flag the test already
   computes.
 

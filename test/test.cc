@@ -168,6 +168,9 @@ static void test_memory_pool() {
 int main() {
 	bool tracked = tracking_enabled();
 	std::printf("allocators: tracking %s\n", tracked ? "ENABLED" : "disabled");
+#if defined(ALLOCATORS_EXPECT_TRACKED)
+	assert(tracked == (ALLOCATORS_EXPECT_TRACKED != 0));  // the build mode under test is the one running
+#endif
 
 	test_accounting(tracked);
 	exercise_vector<allocators::vanilla_allocator>("vanilla_allocator");

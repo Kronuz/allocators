@@ -58,4 +58,21 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   add_executable(allocators_test test/test.cc)
   target_link_libraries(allocators_test PRIVATE allocators)
   add_test(NAME allocators COMMAND allocators_test)
+
+  # The tracked mode (global new/delete override) as a second copy of the library,
+  # so CI tests both modes whatever ALLOCATORS_TRACKED_MEM is.
+  add_library(allocators_tracked STATIC allocators.cc)
+  target_include_directories(allocators_tracked PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+  target_compile_features(allocators_tracked PUBLIC cxx_std_20)
+  target_compile_definitions(allocators_tracked PUBLIC XAPIAND_TRACKED_MEM=1)
+  add_executable(allocators_tracked_test test/test.cc)
+  target_link_libraries(allocators_tracked_test PRIVATE allocators_tracked)
+  target_compile_definitions(allocators_tracked_test PRIVATE ALLOCATORS_EXPECT_TRACKED=1)
+  add_test(NAME allocators_tracked COMMAND allocators_tracked_test)
+  if(NOT ALLOCATORS_TRACKED_MEM)
+    target_compile_definitions(allocators_test PRIVATE ALLOCATORS_EXPECT_TRACKED=0)
+  endif()
+
+  add_executable(allocators_demo examples/demo.cc)
+  target_link_libraries(allocators_demo PRIVATE allocators_tracked)
 endif()
