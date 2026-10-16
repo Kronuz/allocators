@@ -14,7 +14,9 @@ allocators_config.h.in  CMake template for the generated allocators_config.h: #c
 test/test.cc            Runnable smoke test: detects tracking mode at runtime, checks the counters, the allocator over both backends, and the memory pool.
 CMakeLists.txt          STATIC library `allocators` (+ alias allocators::allocators); ALLOCATORS_TRACKED_MEM option; thread_local probe; configure_file; CTest test `allocators`.
 LICENSE                 MIT, Copyright (c) 2015-2019 Dubalu LLC.
-README.md               What it is, install, usage, the tracking option, build.
+README.md                    What it is, install, quick start.
+docs/API.md                  Usage, the backends, and the tracking build option.
+docs/allocators.d2           The README diagram's source (docs/allocators.svg is rendered from it).
 ARCHITECTURE.md         Internal design: the allocator template, byte accounting, the global override, the memory pool.
 ```
 

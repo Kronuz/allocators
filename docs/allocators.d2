@@ -1,0 +1,28 @@
+# allocators: an STL allocator over two backends, a node pool, and optional global accounting.
+# Render: d2 --layout elk --sketch --theme 302 docs/allocators.d2 docs/allocators.svg
+direction: right
+
+containers: STL containers {
+  style.multiple: true
+  label: "std::vector · std::list · std::map"
+}
+alloc: "allocator<T, Backend>"
+backends: backends {
+  vanilla: "vanilla_allocator\nmalloc / free"
+  tracked: "tracked_allocator\nsize header + counters"
+}
+pool: "memory_pool_allocator<T>" {
+  label: "memory_pool_allocator<T>\none node at a time, free list"
+}
+global: global new / delete {
+  label: "global new / delete\n(ALLOCATORS_TRACKED_MEM=ON)"
+}
+counters: counters {
+  label: "total_allocated()\nlocal_allocated()"
+}
+containers -> alloc
+containers -> pool
+alloc -> backends.vanilla
+alloc -> backends.tracked
+backends.tracked -> counters
+global -> counters
