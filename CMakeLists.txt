@@ -59,6 +59,18 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   target_link_libraries(allocators_test PRIVATE allocators)
   add_test(NAME allocators COMMAND allocators_test)
 
+  # TSan's runtime defines operator new and delete itself, so the tracked mode cannot
+  # link under it. CI passes sanitizer flags through the build type's variable.
+  string(TOUPPER "${CMAKE_BUILD_TYPE}" _allocators_build_type)
+  set(_allocators_flags "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${_allocators_build_type}} ${CMAKE_EXE_LINKER_FLAGS}")
+  if(_allocators_flags MATCHES "-fsanitize=([a-z,]*,)?thread")
+    if(ALLOCATORS_TRACKED_MEM)
+      message(FATAL_ERROR "ALLOCATORS_TRACKED_MEM cannot link with -fsanitize=thread")
+    endif()
+    target_compile_definitions(allocators_test PRIVATE ALLOCATORS_EXPECT_TRACKED=0)
+    return()
+  endif()
+
   # The tracked mode (global new/delete override) as a second copy of the library,
   # so CI tests both modes whatever ALLOCATORS_TRACKED_MEM is.
   add_library(allocators_tracked STATIC allocators.cc)
