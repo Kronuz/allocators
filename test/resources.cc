@@ -14,6 +14,47 @@ void check(bool condition) {
 	if (!condition) throw std::runtime_error("resource invariant failed");
 }
 struct alignas(256) Aligned { char value[256]; };
+struct Forward;
+struct ForwardOwner { OwnedUnique<Forward> value; ~ForwardOwner(); };
+struct Forward { unsigned *destroyed; ~Forward() { ++*destroyed; } };
+ForwardOwner::~ForwardOwner() = default;
+void unique_ownership() {
+	auto account = std::make_shared<ByteAccount>(1024 * 1024);
+	auto resource = make_charged_resource(account);
+	std::weak_ptr<std::pmr::memory_resource> weak = resource;
+	auto owned = make_owned_unique<Aligned>(AllocationContext(resource));
+	check(reinterpret_cast<std::uintptr_t>(owned.get()) % alignof(Aligned) == 0);
+	resource.reset();
+	auto moved = std::move(owned);
+	check(!owned && !weak.expired());
+	moved.reset();
+	check(!weak.expired());
+	moved = OwnedUnique<Aligned>{};
+	check(weak.expired() && account->used() > 0);
+	weak.reset();
+	check(account->used() == 0);
+	resource = make_charged_resource(account);
+	const auto fixed = account->used();
+	struct Failure {};
+	struct Failed { Failed() { throw Failure{}; } };
+	try { auto value = make_owned_unique<Failed>(AllocationContext(resource)); check(false); }
+	catch (const Failure &) {}
+	check(account->used() == fixed);
+	{
+		auto full = account->admit(account->limit() - account->used());
+		try { auto value = make_owned_unique<Aligned>(AllocationContext(resource)); check(false); }
+		catch (const ResourcePressure &) {}
+		check(account->used() == account->limit());
+	}
+	unsigned destroyed = 0;
+	{
+		ForwardOwner forward;
+		forward.value = make_owned_unique<Forward>(AllocationContext(resource), &destroyed);
+	}
+	check(destroyed == 1 && account->used() == fixed);
+	resource.reset();
+	check(account->used() == 0);
+}
 void reservations() {
 	using V = ResourceVector<2>;
 	const V hard{{200, 20}};
@@ -163,6 +204,6 @@ void ownership() {
 }
 }
 int main() {
-	reservations(); hierarchy(); concurrency(); ownership();
+	reservations(); hierarchy(); concurrency(); ownership(); unique_ownership();
 	std::cout << "resource hierarchy, concurrent rollback and ownership checks passed\n";
 }
