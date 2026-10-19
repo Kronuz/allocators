@@ -72,4 +72,23 @@ template <class T> class OwnedAllocator {
 	AllocationContext context_;
 	template <class> friend class OwnedAllocator;
 };
+template <class T> struct OwnedDelete {
+	AllocationContext context;
+	void operator()(T *pointer) const noexcept {
+		if (!pointer) return;
+		std::destroy_at(pointer);
+		context.resource()->deallocate(pointer, sizeof(T), alignof(T));
+	}
+};
+template <class T> using OwnedUnique = std::unique_ptr<T, OwnedDelete<T>>;
+template <class T, class... Args> OwnedUnique<T> make_owned_unique(AllocationContext context, Args &&...args) {
+	auto *resource = context.resource();
+	auto *pointer = static_cast<T *>(resource->allocate(sizeof(T), alignof(T)));
+	try { std::construct_at(pointer, std::forward<Args>(args)...); }
+	catch (...) {
+		resource->deallocate(pointer, sizeof(T), alignof(T));
+		throw;
+	}
+	return OwnedUnique<T>(pointer, OwnedDelete<T>{std::move(context)});
+}
 } // namespace allocators

@@ -3,7 +3,7 @@ project(allocators LANGUAGES CXX)
 
 include(CheckCXXSourceCompiles)
 
-# Resource ownership has no dependency on the legacy global allocation overrides.
+# Shared and unique resource owners do not use legacy global allocation overrides.
 add_library(allocators_resources INTERFACE)
 add_library(allocators::resources ALIAS allocators_resources)
 target_include_directories(allocators_resources INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")

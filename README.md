@@ -75,6 +75,8 @@ auto value = std::allocate_shared<int>(
     allocators::OwnedAllocator<int>(allocators::AllocationContext(resource)), 42);
 ```
 
+For unique ownership, `make_owned_unique<T>(context, args...)` constructs one object through the same resource and returns `OwnedUnique<T>`. Its deleter retains the allocation context, destroys the object, and frees its original size and alignment. Constructor failure frees the allocation before propagating the exception. Resetting the pointer destroys the object but retains its deleter context until the pointer itself is destroyed or replaced.
+
 A `ByteCharge` retains the account's counter state, including its ancestors, after the initiating facade is destroyed. Successful admission and release allocate no bookkeeping storage; constructing an independent account allocates its counter state once, outside its own payload quota. Pressure rolls back all ancestor charges before throwing `ResourcePressure`. `PagedStorage` also retains state and can continue allocating after the initiating facade is gone.
 
 ```cpp

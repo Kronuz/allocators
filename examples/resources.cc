@@ -6,5 +6,6 @@ int main() {
 	auto resource = allocators::make_charged_resource(account);
 	auto value = std::allocate_shared<int>(
 		allocators::OwnedAllocator<int>(allocators::AllocationContext(resource)), 42);
-	std::cout << *value << ": " << account->used() << " admitted bytes\n";
+	auto unique = allocators::make_owned_unique<int>(allocators::AllocationContext(resource), 7);
+	std::cout << *value << ", " << *unique << ": " << account->used() << " admitted bytes\n";
 }
