@@ -164,3 +164,9 @@ unit that used it:
    global override, and the tracked path's size-header bookkeeping stay gated.
 
 Every delta is reconcilable with upstream as a plain edit; keep it that way.
+
+## Explicit resource modules
+
+`include/allocators/resources.h` owns checked resource vectors, concurrent owning byte charges and single-executor reservation books. `allocation.h` owns PMR allocation contexts, `charged_allocator.h` and `memory_resource.h` own charged adapters, and `storage.h`/`buffer.h` own page and buffer capacity. `retirement.h` plus `retirement.cc` own the optional POSIX cleanup runtime. These targets must never build or link `allocators.cc` merely through resource consumption.
+
+Run `allocators_resources` and `allocators_retirement` alongside both legacy tracking modes. TSan skips only tracked allocation interception; it must still run resource and retirement tests. Counter-state construction is a separate fixed baseline; successful steady admission and normal reservation transitions allocate no bookkeeping storage. Preserve exact upstream extents, physical-free-before-refund and weak control charges. Reservation books outlive their capabilities, and unresolved destruction preserves debt. Runtime shutdown belongs to the application after all domains drain.

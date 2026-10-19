@@ -58,6 +58,52 @@ int main() {
 
 Without `ALLOCATORS_TRACKED_MEM`, the counters read `0`.
 
+## Bounded resources and cleanup
+
+`allocators::resources` is a separate header-only target for explicit ownership and resource limits. It neither builds nor links the legacy allocator backends or global allocation overrides. `allocators::retirement` adds a caller-owned POSIX cleanup runtime; disable its target with `ALLOCATORS_BUILD_RETIREMENT=OFF` when only accounting is needed. The compiled target follows `BUILD_SHARED_LIBS`, like the legacy allocator target.
+
+```cpp
+#include <allocators/memory_resource.h>
+#include <allocators/allocation.h>
+
+// Charge the complete upstream allocation, including headers and alignment.
+auto account = std::make_shared<allocators::ByteAccount>(1024 * 1024);
+auto resource = allocators::make_charged_resource(account);
+auto value = std::allocate_shared<int>(
+    allocators::OwnedAllocator<int>(allocators::AllocationContext(resource)), 42);
+```
+
+A `ByteCharge` retains the account's counter state, including its ancestors, after the initiating facade is destroyed. Successful admission and release allocate no bookkeeping storage; constructing an independent account allocates its counter state once, outside its own payload quota. Pressure rolls back all ancestor charges before throwing `ResourcePressure`. `PagedStorage` also retains state and can continue allocating after the initiating facade is gone.
+
+```cpp
+#include <allocators/resources.h>
+
+// Reserve simultaneous peak effects before beginning an external operation.
+using Vector = allocators::ResourceVector<2>;
+allocators::ReservationBook<2> book(Vector{{1000, 10}}, Vector{{200, 2}});
+auto reservation = book.try_reserve(Vector{{300, 3}}, Vector{{800, 8}});
+if (reservation) {
+    book.settle(*reservation, Vector{{250, 2}}, Vector{{100, 1}});
+}
+```
+
+Reservation books belong to one executor and outlive their move-only capabilities. Destroying an unresolved reservation preserves its debt and marks abandonment; only explicit cancellation or settlement releases reserved capacity. The caller proves reclaim credits and enforces protected pools, original-I/O ownership and durable deletion. Those policies are outside the shared arithmetic.
+
+```cpp
+#include <allocators/retirement.h>
+
+// Final owner release enqueues cleanup; the application owns shutdown.
+auto baseline = std::make_shared<allocators::ByteAccount>(1024 * 1024);
+auto objects = std::make_shared<allocators::ByteAccount>(1024 * 1024);
+allocators::RetirementRuntime runtime(baseline);
+auto domain = runtime.domain(objects);
+auto drain = domain.close();
+drain.wait();
+runtime.shutdown();
+```
+
+Retirement handles release through an intrusive queue. Payload destruction and control-block release run on the fixed cleanup worker. Keep the runtime alive until every domain drains, and retain accepted I/O owners until authentic completion before retiring them.
+
 ## 🎯 When to use it
 
 - ✅ Measuring heap use in tests, benchmarks, or a debug build of a service.

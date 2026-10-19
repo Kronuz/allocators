@@ -106,3 +106,15 @@ touching the container code. The accounting lives entirely in the backend and
 the optional global override, so a release build pays nothing for it. The memory
 pool is a separate tool for the node-based-container case, where a general
 allocator's per-call `malloc` is wasteful and a fixed-size recycling pool wins.
+
+## Optional resource modules
+
+The resource headers live under `include/allocators` and expose a separate interface target. They use no legacy backend, global override or tracking switch. The optional `retirement.cc` target owns its POSIX dependencies and fixed worker only when selected. The original target, symbols and tracking behavior are unchanged.
+
+`ByteAccount` owns a stable shared counter state. States retain immutable parent states; charges and page arenas retain state rather than borrowed facades. Successful admission uses bounded ancestor traversal, rolls back on pressure and records peaks only after successful complete admission. Account construction has a separate fixed allocation baseline; its own control block is not charged through itself. Charged allocation headers retain one owning charge, avoiding redundant facade ownership. Physical release precedes refund, and weak control blocks retain their charges until final release.
+
+`ResourceVector<N>` implements checked componentwise arithmetic over unsigned 64-bit dimensions. `ReservationBook<N>` embeds nonmoving committed, reserved and peak counters. It retains complete over-quota census debt. Reserve and growth require both hard capacity and caller-authorized spendable capacity. Settlement computes all counters before mutation. An unresolved capability's destruction preserves reserved capacity and records abandonment. The book must outlive its capabilities; a domain wrapper retains that owner and supplies durable proofs.
+
+`AllocationContext` and `OwnedAllocator` preserve an owning PMR resource through containers and weak shared controls. Forwarding through an already charged resource adds no second charge. Typed charged allocation keeps its maximum-alignment restriction, while the PMR adapter admits alignment padding and supports over-aligned payloads.
+
+The retirement runtime moves the fixed registry, resident admission, rollback barrier and incoming/readiness handoff into this library. Final release enqueues without allocation, destruction, free or thread join. A resident anchors its domain until cleanup finishes; the application retains the runtime until all domains drain. The bounded runnable/waiting/retry queues and periodic wake behavior are preserved.

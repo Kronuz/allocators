@@ -49,3 +49,11 @@ The option defines the macro `XAPIAND_TRACKED_MEM` in a generated
 generated macro, `HAS_THREAD_LOCAL`, decides whether the per-thread counter uses
 `thread_local` or a mutex-guarded map; CMake probes for it, and C++20 always has
 it. See [ARCHITECTURE.md](../ARCHITECTURE.md) for the accounting internals.
+
+## Explicit resource targets
+
+Link `allocators::resources` for the headers under `allocators/`. `ByteAccount::admit` returns a move-only owning `ByteCharge`; `share()` captures the same counter state without allocating. `ChargedAllocator`, `ChargedMemoryResource`, `PagedStorage` and `OwnedBuffer` admit full upstream capacity. `AllocationContext`/`OwnedAllocator` retain PMR lifetime, including weak shared controls.
+
+`ReservationBook<N>` uses `ResourceVector<N>` dimensions. Its operations are `try_reserve(peak, spendable)`, `try_grow(reservation, minimum_peak, spendable_delta)`, `cancel`, `settle(reservation, additions, proved_credit)` and `reclaim(proved_credit)`. Construction accepts hard capacity and an optional complete census, including over-quota debt. Accessors return committed use, reserved use, observed peak and abandonment. Operations belong to one executor; the book outlives every capability. Failed growth changes nothing. Unresolved destruction preserves debt and prevents further admission. A reservation capability can also `abandon()` explicitly; this preserves its peak metadata and clears its reference to the book after recording abandonment.
+
+Link optional `allocators::retirement` for caller-owned `RetirementRuntime`, `RetirementDomain`, `RetirementFactory` and intrusive `RetirementHandle<T>`. A payload derives from `RetirementNode` and may implement bounded `retire_step()`/`retry_later()` cleanup. Close admission, release all accepted originals and handles, then wait for the drain before shutting down the runtime.

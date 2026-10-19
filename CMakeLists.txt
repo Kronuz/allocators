@@ -3,6 +3,24 @@ project(allocators LANGUAGES CXX)
 
 include(CheckCXXSourceCompiles)
 
+# Resource ownership has no dependency on the legacy global allocation overrides.
+add_library(allocators_resources INTERFACE)
+add_library(allocators::resources ALIAS allocators_resources)
+target_include_directories(allocators_resources INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(allocators_resources INTERFACE cxx_std_20)
+
+# POSIX cleanup is optional; resource-only consumers need no platform runtime.
+option(ALLOCATORS_BUILD_RETIREMENT "Build the optional POSIX cleanup runtime" ${UNIX})
+if(ALLOCATORS_BUILD_RETIREMENT)
+  if(NOT UNIX)
+    message(FATAL_ERROR "allocators retirement requires a POSIX platform")
+  endif()
+  find_package(Threads REQUIRED)
+  add_library(allocators_retirement EXCLUDE_FROM_ALL retirement.cc)
+  add_library(allocators::retirement ALIAS allocators_retirement)
+  target_link_libraries(allocators_retirement PUBLIC allocators::resources PRIVATE Threads::Threads)
+endif()
+
 # --- Feature option: tracked memory ---
 # allocators.cc used Xapiand's project-wide "config.h" for XAPIAND_TRACKED_MEM:
 # when defined, the library overrides the global operator new/delete to account
@@ -40,7 +58,11 @@ configure_file(
 # new/delete overrides, so it must be compiled and linked. The repo root holds
 # allocators.h; the build dir holds the generated allocators_config.h, so both
 # go on the include path.
-add_library(allocators allocators.cc)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  add_library(allocators allocators.cc)
+else()
+  add_library(allocators EXCLUDE_FROM_ALL allocators.cc)
+endif()
 target_include_directories(allocators PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CMAKE_CURRENT_BINARY_DIR}"
@@ -54,7 +76,19 @@ add_library(allocators::allocators ALIAS allocators)
 # Only build the test when this repo is the top-level project, so consumers
 # (e.g. via FetchContent) don't build our tests.
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  add_executable(allocators_resources_demo examples/resources.cc)
+  target_link_libraries(allocators_resources_demo PRIVATE allocators::resources)
   enable_testing()
+  find_package(Threads REQUIRED)
+  if(ALLOCATORS_BUILD_RETIREMENT)
+    add_executable(allocators_retirement_test test/retirement.cc)
+    target_link_libraries(allocators_retirement_test PRIVATE allocators::retirement)
+    add_test(NAME allocators_retirement COMMAND allocators_retirement_test)
+    set_tests_properties(allocators_retirement PROPERTIES TIMEOUT 30)
+  endif()
+  add_executable(allocators_resources_test test/resources.cc)
+  target_link_libraries(allocators_resources_test PRIVATE allocators::resources Threads::Threads)
+  add_test(NAME allocators_resources COMMAND allocators_resources_test)
   add_executable(allocators_test test/test.cc)
   target_link_libraries(allocators_test PRIVATE allocators)
   add_test(NAME allocators COMMAND allocators_test)
