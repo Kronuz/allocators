@@ -83,7 +83,11 @@ allocator untouched.
 
 `memory_pool_allocator<T>` is a different shape: a stateful, single-element
 pool, not a thin forwarder. Internally it holds a `std::deque` of
-`max_align_t`-aligned blocks (each big enough for one `T`) and a free-list head.
+`max_align_t`-aligned blocks (each big enough for one `T`) and a free-list head,
+both held in a state object shared through a `shared_ptr`. Copies of an
+allocator share that state and compare equal; a rebound allocator (another
+block size) starts its own pool. Containers copy and rebind their allocator
+freely, so the pool must not live inside the allocator value itself.
 
 `allocate(1)` either pops a block off the free list, or — if the list is empty —
 `emplace_back`s a fresh block on the deque and returns it. It refuses any request
@@ -95,7 +99,8 @@ most recently freed block is the next one handed out — good for cache locality
 the node churn of a `std::list` or tree.
 
 The deque owns the storage, so the pool's lifetime bounds the lifetime of every
-slot it handed out; the container using it must not outlive the allocator.
+slot it handed out; the pool lives until the last allocator copy is destroyed.
+It is not thread-safe.
 
 ## Why this shape
 

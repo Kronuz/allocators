@@ -14,6 +14,9 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <list>
+#include <map>
+#include <new>
 #include <vector>
 
 #include "allocators.h"
@@ -164,6 +167,46 @@ static void test_memory_pool() {
 	std::printf("allocators memory_pool_allocator OK: pooled allocate/free, blocks recycled\n");
 }
 
+#define CHECK(cond) do { if (!(cond)) { std::fprintf(stderr, "CHECK failed: %s (line %d)\n", #cond, __LINE__); std::abort(); } } while (0)
+
+// Containers rebind the allocator to their node type and copy it freely; the
+// pool must outlive those temporaries and the nodes must not overlap.
+static void test_memory_pool_containers() {
+	using Pool = allocators::memory_pool_allocator<int>;
+	for (int n : {1, 3, 10, 100, 5000}) {
+		std::list<int, Pool> list;
+		for (int i = 0; i < n; ++i) list.push_back(i);
+		long expected = 0, sum = 0;
+		for (int i = 0; i < n; ++i) expected += i;
+		for (int v : list) sum += v;
+		CHECK(sum == expected && list.size() == static_cast<std::size_t>(n));
+		for (int i = 0; i < n / 2; ++i) list.pop_front();
+		for (int i = 0; i < n; ++i) list.push_front(-i);  // reuses freed blocks
+		CHECK(list.size() == static_cast<std::size_t>(n - n / 2 + n));
+		auto copy = list;
+		CHECK(copy == list);
+
+		std::map<int, int, std::less<int>, allocators::memory_pool_allocator<std::pair<const int, int>>> map;
+		for (int i = 0; i < n; ++i) map[i] = i * 3;
+		for (int i = 0; i < n; i += 2) map.erase(i);
+		for (int i = 0; i < n; ++i) map[n + i] = i;
+		for (int i = 1; i < n; i += 2) CHECK(map.at(i) == i * 3);
+		CHECK(map.size() == static_cast<std::size_t>(n / 2 + n));
+	}
+
+	// A single-element pool cannot serve a vector's contiguous storage.
+	std::vector<int, Pool> vec;
+	bool threw = false;
+	try { vec.assign(10, 0); } catch (const std::bad_alloc&) { threw = true; }
+	CHECK(threw);
+
+	// Copies share one pool; independent allocators compare unequal.
+	Pool a, b(a), c;
+	CHECK(a == b && a != c);
+
+	std::printf("allocators memory_pool_allocator OK: std::list and std::map past 5000 elements\n");
+}
+
 
 int main() {
 	bool tracked = tracking_enabled();
@@ -176,6 +219,7 @@ int main() {
 	exercise_vector<allocators::vanilla_allocator>("vanilla_allocator");
 	exercise_vector<allocators::tracked_allocator>("tracked_allocator");
 	test_memory_pool();
+	test_memory_pool_containers();
 
 	std::printf("all allocators tests passed\n");
 	return 0;

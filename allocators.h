@@ -29,6 +29,7 @@
 
 #include <cstddef>        // for std::size_t
 #include <deque>          // for std::deque
+#include <memory>         // for std::shared_ptr
 #include <limits>         // for std::numeric_limits
 #include <new>            // for std::bad_alloc, std::nothrow_t, std::new_handler
 
@@ -148,15 +149,26 @@ namespace allocators {
 			memory_pool_block* next;
 		};
 
-		std::deque<memory_pool_block> buffer;
+		// The pool is shared by every copy of an allocator (containers copy their
+		// allocator), so blocks stay valid until the last copy is gone.
+		struct memory_pool_state {
+			std::deque<memory_pool_block> buffer;
+			memory_pool_block* next_free_block = nullptr;
+		};
 
-		memory_pool_block* next_free_block = nullptr;
+		std::shared_ptr<memory_pool_state> state = std::make_shared<memory_pool_state>();
+
+		friend bool operator==(const memory_pool_allocator& a, const memory_pool_allocator& b) noexcept { return a.state == b.state; }
+		friend bool operator!=(const memory_pool_allocator& a, const memory_pool_allocator& b) noexcept { return a.state != b.state; }
 
 	public:
-		// constructors and destructor - deleted copy
 		memory_pool_allocator() = default;
+		// A copy shares the pool; a move copies too, so the source stays usable.
+		memory_pool_allocator(const memory_pool_allocator&) noexcept = default;
+		memory_pool_allocator& operator=(const memory_pool_allocator&) noexcept = default;
+		// A rebound allocator serves another block size and starts its own pool.
 		template<typename _Tp1>
-		memory_pool_allocator(const memory_pool_allocator<_Tp1>&) throw() { }
+		memory_pool_allocator(const memory_pool_allocator<_Tp1>&) noexcept { }
 
 		// rebind allocator to type _Tp1
 		template <typename _Tp1>
@@ -170,21 +182,21 @@ namespace allocators {
 				throw std::bad_alloc();
 			}
 
-			if (next_free_block) {
-				memory_pool_block* block = next_free_block;
-				next_free_block = block->next;
+			if (state->next_free_block) {
+				memory_pool_block* block = state->next_free_block;
+				state->next_free_block = block->next;
 				return reinterpret_cast<pointer>(&block->value);
 			}
 
-			buffer.emplace_back();
-			return reinterpret_cast<pointer>(&buffer.back().value);
+			state->buffer.emplace_back();
+			return reinterpret_cast<pointer>(&state->buffer.back().value);
 		}
 
 		// deallocate storage __p of deleted elements
 		void deallocate(pointer __p, size_type) {
 			auto block = reinterpret_cast<memory_pool_block*>(__p);
-			block->next = next_free_block;
-			next_free_block = block;
+			block->next = state->next_free_block;
+			state->next_free_block = block;
 		}
 
 		// initialize elements of allocated storage __p with value value
@@ -198,8 +210,4 @@ namespace allocators {
 		}
 	};
 
-	template <typename _Tp>
-	inline bool operator==(const memory_pool_allocator<_Tp>& a, const memory_pool_allocator<_Tp>& b) noexcept { return &a == &b; }
-	template <typename _Tp>
-	inline bool operator!=(const memory_pool_allocator<_Tp>& a, const memory_pool_allocator<_Tp>& b) noexcept { return &a != &b; }
 }
