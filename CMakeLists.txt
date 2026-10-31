@@ -108,6 +108,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   add_executable(allocators_construct_test test/construct.cc)
   target_link_libraries(allocators_construct_test PRIVATE allocators Threads::Threads)
   add_test(NAME allocators_construct COMMAND allocators_construct_test)
+  # Benchmark, not a test: vector push_back through std::allocator and the library's allocator.
+  add_executable(allocators_bench bench/bench.cc)
+  target_link_libraries(allocators_bench PRIVATE allocators)
 
   # TSan's runtime defines operator new and delete itself, so the tracked mode cannot
   # link under it. CI passes sanitizer flags through the build type's variable.

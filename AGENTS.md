@@ -14,6 +14,7 @@ allocators_config.h.in  CMake template for the generated allocators_config.h: #c
 test/pool.cc            Memory pool: rebind identity, equality matrix, propagation traits, no-allocation conversion, cross-thread copy, overlap detection (its own ctest target, TSan-clean).
 test/propagation.cc     Memory pool through container copy, move and swap (node and array containers, two-thread churn after a copy assignment), plus the stateless allocator over five containers; run under ASan and TSan.
 test/construct.cc       construct/destroy forwarding: copy, move and destroy counts of vector, deque, list, map, unordered_map and a throwing type equal std::allocator's (its own ctest target).
+bench/bench.cc          vector push_back through std::allocator and allocators::allocator (target allocators_bench; --counts prints only the copy and move counts).
 test/test.cc            Runnable smoke test: detects tracking mode at runtime, checks the counters, the allocator over both backends, and the memory pool.
 examples/demo.cc        The counters following strings and a tracked std::map (allocators_demo, tracked build).
 CMakeLists.txt          STATIC library `allocators` (+ alias allocators::allocators); ALLOCATORS_TRACKED_MEM option; thread_local probe; configure_file; CTest test `allocators`.
