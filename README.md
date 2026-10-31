@@ -60,6 +60,26 @@ int main() {
 
 Without `ALLOCATORS_TRACKED_MEM`, the counters read `0`.
 
+### The memory pool: identity and threads
+
+All copies and rebinds of a `memory_pool_allocator` share one pool, so
+`A<T>(A<U>(a)) == a` and allocators of one pool compare equal whatever their value types. The
+converting constructor never allocates. Container assignment and swap propagate the pool
+(`propagate_on_container_*` are `true_type`, `is_always_equal` is `false_type`), and a
+container *copy* gets a new pool.
+
+**A pool is not thread-safe**: use all allocators of one pool from one thread at a time,
+with a happens-before edge at each hand-over. Copying a container to another thread is
+safe (the copy is independent); sharing an allocator, or using a container from two threads,
+is not. Without `NDEBUG` (or with `ALLOCATORS_POOL_CHECK`) overlapping use is detected and
+reported through `allocators::set_pool_misuse_handler` (abort by default).
+
+> **Behavior change (fix).** Before, rebinding an allocator (which `std::list` and
+> `std::map` do) started an unrelated pool, so `A<T>(A<U>(a)) != a`, the conversion allocated
+> under `noexcept`, container swap of lists with different pools was undefined, and a
+> container copy shared the original's unsynchronized pool. Allocator type, template
+> parameters and `allocate`/`deallocate` signatures are unchanged.
+
 ## Bounded resources and cleanup
 
 `allocators::resources` is a separate header-only target for explicit ownership and resource limits. It neither builds nor links the legacy allocator backends or global allocation overrides. `allocators::retirement` adds a caller-owned POSIX cleanup runtime; disable its target with `ALLOCATORS_BUILD_RETIREMENT=OFF` when only accounting is needed. The compiled target follows `BUILD_SHARED_LIBS`, like the legacy allocator target.

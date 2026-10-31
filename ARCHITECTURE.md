@@ -82,25 +82,41 @@ allocator untouched.
 ## The memory pool
 
 `memory_pool_allocator<T>` is a different shape: a stateful, single-element
-pool, not a thin forwarder. Internally it holds a `std::deque` of
-`max_align_t`-aligned blocks (each big enough for one `T`) and a free-list head,
-both held in a state object shared through a `shared_ptr`. Copies of an
-allocator share that state and compare equal; a rebound allocator (another
-block size) starts its own pool. Containers copy and rebind their allocator
-freely, so the pool must not live inside the allocator value itself.
+pool, not a thin forwarder. An allocator holds a `shared_ptr` to a **pool family**;
+the family holds one *size class* per distinct block size (`sizeof(T)` rounded up to
+`max_align_t`, at least a pointer). A size class is chunked storage (16 blocks,
+doubling to about 64 KiB per chunk), a bump pointer into the newest chunk and a LIFO
+free list. Chunks are never returned before the family dies.
 
-`allocate(1)` either pops a block off the free list, or — if the list is empty —
-`emplace_back`s a fresh block on the deque and returns it. It refuses any request
-other than exactly one element (`n != 1` throws `bad_alloc`), because it is built
-for node-based containers where every allocation is a single node. `deallocate`
-pushes the block back onto the free list; it never shrinks the deque, so freed
-slots are reused rather than returned to the OS. The free list is LIFO, so the
-most recently freed block is the next one handed out — good for cache locality in
-the node churn of a `std::list` or tree.
+**Identity.** Every copy and every rebind of an allocator holds the same family, so
+`A<T>(A<U>(a)) == a`, any two allocators of one family compare equal whatever their
+value types (`operator==` is defined across `T`), and blocks of one can be freed
+through another. The converting constructor copies the handle only: `noexcept`, no
+allocation (a size class is found on first `allocate`). A default-constructed
+allocator starts a new family (one allocation). Containers copy and rebind their
+allocator freely, which is why the pool lives in the shared family and not in the
+allocator value.
 
-The deque owns the storage, so the pool's lifetime bounds the lifetime of every
-slot it handed out; the pool lives until the last allocator copy is destroyed.
-It is not thread-safe.
+**Propagation.** `propagate_on_container_copy_assignment`, `_move_assignment` and
+`_swap` are `true_type` and `is_always_equal` is `false_type`: blocks are owned by
+the family and travel with the allocator, so container swap and move-assign keep their
+nodes (no element-wise fallback, no UB on swap). `select_on_container_copy_construction`
+returns a **new** pool, so a copied container shares nothing with the original.
+
+`allocate(1)` pops the free list, else bumps the current chunk, else adds a chunk. It
+refuses any request other than exactly one element (`n != 1` throws `bad_alloc`),
+because it is built for node-based containers. `deallocate` pushes the block on the free
+list. The free list is LIFO, so the most recently freed block is the next one handed
+out, good for cache locality in the node churn of a `std::list` or tree.
+
+**Thread safety.** A pool is not thread-safe. All allocators of one family must be used
+by one thread at a time, with a happens-before edge at each hand-over. Copying a
+*container* across threads is safe (the copy has its own pool); copying an *allocator*,
+or moving a container to another thread while the original is still in use, is not.
+Builds without `NDEBUG`, or with `ALLOCATORS_POOL_CHECK`, detect overlapping use of one
+size class and call the misuse handler (abort by default,
+`allocators::set_pool_misuse_handler`); this finds overlap in time, not a missing
+hand-over edge, so run such code under TSan as well.
 
 ## Why this shape
 

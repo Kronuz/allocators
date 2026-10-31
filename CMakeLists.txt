@@ -92,6 +92,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   add_executable(allocators_test test/test.cc)
   target_link_libraries(allocators_test PRIVATE allocators)
   add_test(NAME allocators COMMAND allocators_test)
+  # The memory pool: rebind identity, propagation, cross-thread use, overlap check.
+  # Header-only and free of the global overrides, so it also runs under TSan.
+  add_executable(allocators_pool_test test/pool.cc)
+  target_link_libraries(allocators_pool_test PRIVATE allocators Threads::Threads)
+  target_compile_definitions(allocators_pool_test PRIVATE ALLOCATORS_POOL_CHECK=1)
+  add_test(NAME allocators_pool COMMAND allocators_pool_test)
 
   # TSan's runtime defines operator new and delete itself, so the tracked mode cannot
   # link under it. CI passes sanitizer flags through the build type's variable.

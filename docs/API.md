@@ -13,7 +13,8 @@ v.push_back(42);
 // The same template over the tracking backend.
 std::vector<int, allocators::allocator<int, allocators::tracked_allocator>> t;
 
-// One-element pool, the backend for a node-based container.
+// One-element pool, the backend for a node-based container. Copies and rebinds share
+// the pool (A<T>(A<U>(a)) == a); it is single-threaded: one thread at a time per pool.
 allocators::memory_pool_allocator<long> pool;
 
 // Process-wide and per-thread live bytes (0 unless built with tracking on).
