@@ -74,12 +74,6 @@ safe (the copy is independent); sharing an allocator, or using a container from 
 is not. Without `NDEBUG` (or with `ALLOCATORS_POOL_CHECK`) overlapping use is detected and
 reported through `allocators::set_pool_misuse_handler` (abort by default).
 
-> **Behavior change (fix).** Before, rebinding an allocator (which `std::list` and
-> `std::map` do) started an unrelated pool, so `A<T>(A<U>(a)) != a`, the conversion allocated
-> under `noexcept`, container swap of lists with different pools was undefined, and a
-> container copy shared the original's unsynchronized pool. Allocator type, template
-> parameters and `allocate`/`deallocate` signatures are unchanged.
-
 ## Bounded resources and cleanup
 
 `allocators::resources` is a separate header-only target for explicit ownership and resource limits. It neither builds nor links the legacy allocator backends or global allocation overrides. `allocators::retirement` adds a caller-owned POSIX cleanup runtime; disable its target with `ALLOCATORS_BUILD_RETIREMENT=OFF` when only accounting is needed. The compiled target follows `BUILD_SHARED_LIBS`, like the legacy allocator target.
@@ -142,6 +136,7 @@ Retirement handles release through an intrusive queue. Payload destruction and c
   pool.
 - [examples/demo.cc](examples/demo.cc): the counters in action.
 - [AGENTS.md](AGENTS.md): repository map, invariants, and traps.
+- [CHANGELOG.md](CHANGELOG.md): behavior changes, newest first.
 
 ## 🛠️ Building and testing
 

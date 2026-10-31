@@ -52,19 +52,19 @@ tracking), and `ALLOCATORS_EXPECT_TRACKED` makes each fail if the probe disagree
 
 ## The config decouple
 
-`allocators.cc` used Xapiand's project-wide `"config.h"` for exactly two macros,
-and nothing else:
+`allocators.cc` reads exactly two macros that Xapiand's project-wide `"config.h"`
+supplies upstream:
 
 - **`XAPIAND_TRACKED_MEM`** — gates the byte accounting and the global
-  `new`/`delete` override. Now driven by the CMake option
+  `new`/`delete` override. Driven by the CMake option
   `ALLOCATORS_TRACKED_MEM` (default OFF), which `#cmakedefine`s the macro into
   the generated `allocators_config.h`. The macro **name is kept verbatim** so the
-  source stays a faithful copy; only its source (CMake vs. Xapiand's config.h)
-  changed.
+  source stays a faithful copy; only where it comes from differs (CMake here,
+  Xapiand's config.h upstream).
 - **`HAS_THREAD_LOCAL`** — picks the `thread_local` counter over the
   mutex-guarded map. Detected by CMake `check_cxx_source_compiles` and
-  `#cmakedefine`d into the same header. `allocators.cc` also keeps its original
-  in-source compiler-feature probe, guarded by `#ifndef HAS_THREAD_LOCAL`, so a
+  `#cmakedefine`d into the same header. `allocators.cc` also has an in-source
+  compiler-feature probe, guarded by `#ifndef HAS_THREAD_LOCAL`, so a
   consumer that compiles the `.cc` without running this CMake still gets a value.
 
 The include is guarded `#if __has_include("allocators_config.h")`, mirroring the
@@ -152,21 +152,20 @@ This is a standalone extraction from
 linkable on its own rather than only from inside Xapiand's single translation
 unit that used it:
 
-1. **The `config.h` decouple** (above): `#include "config.h"` became the guarded
-   `#include "allocators_config.h"`, with `XAPIAND_TRACKED_MEM` and
-   `HAS_THREAD_LOCAL` now supplied by this library's CMake.
-2. **Dropped `inline` on the backend member definitions.** Upstream marked
+1. **The `config.h` decouple** (above): the guarded
+   `#include "allocators_config.h"` stands in for `#include "config.h"`, and this
+   library's CMake supplies `XAPIAND_TRACKED_MEM` and `HAS_THREAD_LOCAL`.
+2. **No `inline` on the backend member definitions.** Upstream marks
    `vanilla_allocator` / `tracked_allocator` `allocate`/`deallocate` `inline` in
-   the `.cc`; that only works when every caller is in the same TU. The header
-   declares them non-inline, so standalone they need external linkage — the
-   `inline` was removed so the symbols export.
-3. **The backends and accessors are defined in both build modes.** Upstream wrapped
-   the entire body in `#ifdef XAPIAND_TRACKED_MEM` and defined only the two
-   zero-returning accessor stubs in the `#else`. That left the backends undefined
-   in an untracked build, which was fine in Xapiand (nothing referenced them
-   there) but breaks a standalone consumer. The malloc/free wrappers, both
-   backends, and the accessors are now always compiled; only the counters, the
-   global override, and the tracked path's size-header bookkeeping stay gated.
+   the `.cc`, which only links when every caller is in the same TU. The header
+   declares them non-inline, so standalone they need external linkage to export.
+3. **The backends and accessors are defined in both build modes.** Upstream wraps
+   the entire body in `#ifdef XAPIAND_TRACKED_MEM` and defines only the two
+   zero-returning accessor stubs in the `#else`, leaving the backends undefined
+   in an untracked build. Nothing in Xapiand references them there, but a
+   standalone consumer does. Here the malloc/free wrappers, both backends, and
+   the accessors always compile; only the counters, the global override, and the
+   tracked path's size-header bookkeeping stay gated.
 
 Every delta is reconcilable with upstream as a plain edit; keep it that way.
 

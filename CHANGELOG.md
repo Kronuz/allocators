@@ -1,0 +1,39 @@
+# Changelog
+
+All notable changes to `allocators` are recorded here, newest first. The format
+follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## 2026-10-31
+
+### Fixed
+
+- `memory_pool_allocator`'s converting constructor started a fresh pool, so
+  `A<T>(A<U>(a)) != a`, the `noexcept` conversion allocated (a `bad_alloc` would
+  terminate), container swap of lists with different pools was undefined
+  (`propagate_on_container_*` and `is_always_equal` were left at their defaults),
+  and a container copy shared the original's unsynchronized pool. Allocators now
+  share a pool family: one size class per block size, with chunked storage, a
+  bump pointer, and a LIFO free list. Rebinding copies the handle (`noexcept`, no
+  allocation, `A<T>(A<U>(a)) == a`, `operator==` across value types).
+  `propagate_on_container_copy/move_assignment` and `_swap` are `true_type`,
+  `is_always_equal` is `false_type`, and a container copy gets a new pool. The
+  type, template parameters, and `allocate`/`deallocate` signatures are
+  unchanged.
+
+### Added
+
+- Overlapping use of one pool from two threads is detected in builds without
+  `NDEBUG` or with `ALLOCATORS_POOL_CHECK` (abort by default, replaceable through
+  `allocators::set_pool_misuse_handler`).
+
+## 2026-10-30
+
+### Fixed
+
+- `std::list` rebinds the allocator to its node type and hands copies of it
+  around. The pool lived inside the allocator value, so a copy allocated from its
+  own deque and freed it when the temporary died, leaving the list nodes
+  dangling and corrupting the heap after a few elements. The pool state is
+  shared between copies, and copies compare equal by state (the old `operator==`
+  compared object addresses). Regression tests cover `std::list` and `std::map`
+  up to 5000 elements and a `std::vector` that must throw `bad_alloc`.
