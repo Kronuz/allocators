@@ -104,6 +104,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   target_link_libraries(allocators_propagation_test PRIVATE allocators Threads::Threads)
   target_compile_definitions(allocators_propagation_test PRIVATE ALLOCATORS_POOL_CHECK=1)
   add_test(NAME allocators_propagation COMMAND allocators_propagation_test)
+  # construct/destroy forwarding: copy and move counts match std::allocator.
+  add_executable(allocators_construct_test test/construct.cc)
+  target_link_libraries(allocators_construct_test PRIVATE allocators Threads::Threads)
+  add_test(NAME allocators_construct COMMAND allocators_construct_test)
 
   # TSan's runtime defines operator new and delete itself, so the tracked mode cannot
   # link under it. CI passes sanitizer flags through the build type's variable.

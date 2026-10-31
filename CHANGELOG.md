@@ -21,6 +21,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `set`, `multiset`, `map` and `multimap`, the array containers the pool refuses
   (`vector`, `deque`, `unordered_map`), and the stateless allocator over five
   containers.
+- `allocator<T, Backend>::construct` and `memory_pool_allocator<T>::construct`
+  took only `const T&`, so `allocator_traits::construct(a, p, std::move(x))`
+  copy-constructed. Every `vector` reallocation and every `push_back(T&&)` deep
+  copied its elements (a `vector` of a counting type filled by 1000
+  `push_back(T&&)` made 2023 copies and no moves, against no copies and 2023
+  moves with `std::allocator`). `construct` now perfect-forwards its arguments, with
+  `noexcept` following the element constructor, so copy, move and throwing-move
+  behaviour match `std::allocator`. Direct calls such as `a.construct(p, v)`
+  still compile. `allocators_bench` (median of 7 alternating runs, ns per
+  element) for `vector<std::string>::push_back(T&&)` at n = 16 / 1000 / 20000:
+  Apple M4 Pro 59 / 72 / 86 before, 25 / 39 / 42 after (`std::allocator` 25 / 38
+  / 41); Intel i9-9980HK 187 / 227 / 284 before, 89 / 131 / 143 after
+  (`std::allocator` 88 / 130 / 141). The `vector<int>` rows move by at most 2.6%
+  (M4) and 0.1% (i9), inside the 5-12% A/A spread. What remains over
+  `std::allocator` (up to 5% on the M4, 2% on the i9) is libc++'s bulk
+  relocation, which applies only to allocators without a `construct` member;
+  dropping the members gives string parity but slows `vector<int>` growth by up
+  to 9% (M4) and 54% (i9).
 - `memory_pool_allocator`'s converting constructor started a fresh pool, so
   `A<T>(A<U>(a)) != a`, the `noexcept` conversion allocated (a `bad_alloc` would
   terminate), container swap of lists with different pools was undefined

@@ -25,10 +25,15 @@ consumer's translation unit.
 
 `allocator<T, Backend>` is a thin, stateless, standard-conforming allocator. Its
 `allocate(n)` multiplies `n * sizeof(T)`, calls `Backend::allocate(bytes)`, and
-casts the result; `deallocate` forwards to `Backend::deallocate`. Everything
-else (`construct`, `destroy`, `address`, `max_size`, `rebind`) is the textbook
-allocator boilerplate. Because it holds no state, any two instances compare
-equal, so containers using it can move and swap freely.
+casts the result; `deallocate` forwards to `Backend::deallocate`. `construct`
+perfect-forwards its arguments to the element constructor, so a container that
+relocates through `allocator_traits::construct(a, p, std::move(x))` moves the
+element instead of copying it (a `const value_type&` overload would turn every
+`vector` reallocation and every `push_back(T&&)` into a deep copy). The rest
+(`destroy`, `address`, `max_size`, `rebind`) is the textbook allocator
+boilerplate. Because it holds no state, any two instances compare equal, so
+containers using it can move and swap freely. `memory_pool_allocator`
+forwards the same way.
 
 The `Backend` is a static interface: two functions, `allocate(size_t)` and
 `deallocate(void*)`, both `static`. Two backends ship.

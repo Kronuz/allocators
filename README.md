@@ -60,6 +60,16 @@ int main() {
 
 Without `ALLOCATORS_TRACKED_MEM`, the counters read `0`.
 
+### Construction forwards its arguments
+
+`construct(p, args...)` of both allocators perfect-forwards to the element constructor, so a
+container relocating through `allocator_traits::construct(a, p, std::move(x))` moves, and a
+throwing move falls back to a copy, exactly as with `std::allocator`. A `construct(p, const T&)`
+overload copies instead: a `vector` filled by 1000 `push_back(T&&)`s then makes 2023 copies and no
+moves (`std::allocator`: no copies, 2023 moves), a deep copy of every `std::string` element.
+`test/construct.cc` compares copy, move and destroy counts with `std::allocator` for `vector`,
+`deque`, `list`, `map`, `unordered_map` and a type whose copies and moves throw.
+
 ### The memory pool: identity and threads
 
 All copies and rebinds of a `memory_pool_allocator` share one pool, so

@@ -13,6 +13,7 @@ allocators.cc           Defines the malloc/free wrappers, the two backends, the 
 allocators_config.h.in  CMake template for the generated allocators_config.h: #cmakedefine's XAPIAND_TRACKED_MEM and HAS_THREAD_LOCAL. Replaces Xapiand's "config.h".
 test/pool.cc            Memory pool: rebind identity, equality matrix, propagation traits, no-allocation conversion, cross-thread copy, overlap detection (its own ctest target, TSan-clean).
 test/propagation.cc     Memory pool through container copy, move and swap (node and array containers, two-thread churn after a copy assignment), plus the stateless allocator over five containers; run under ASan and TSan.
+test/construct.cc       construct/destroy forwarding: copy, move and destroy counts of vector, deque, list, map, unordered_map and a throwing type equal std::allocator's (its own ctest target).
 test/test.cc            Runnable smoke test: detects tracking mode at runtime, checks the counters, the allocator over both backends, and the memory pool.
 examples/demo.cc        The counters following strings and a tracked std::map (allocators_demo, tracked build).
 CMakeLists.txt          STATIC library `allocators` (+ alias allocators::allocators); ALLOCATORS_TRACKED_MEM option; thread_local probe; configure_file; CTest test `allocators`.
@@ -108,6 +109,11 @@ other local include. Only `<config.h>` had to go.
   `local_allocated()` are declared unconditionally in the header and must be
   defined in both build modes (real counters when tracking, constant `0`
   otherwise). Don't move their definition inside the tracking-only block.
+- **`construct` forwards.** `allocator::construct` and `memory_pool_allocator::construct`
+  perfect-forward their arguments (or would not exist, leaving `allocator_traits` to do it).
+  A `construct(pointer, const T&)` overload makes every move that goes through
+  `allocator_traits::construct` a copy: vector reallocation and `push_back(T&&)` then deep copy.
+  `test/construct.cc` pins the counts to `std::allocator`'s.
 - **The backends always exist.** `vanilla_allocator` and `tracked_allocator`
   member functions are defined in *both* build modes (in the untracked build,
   `tracked_allocator` is a plain malloc/free passthrough). The header advertises

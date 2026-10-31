@@ -102,8 +102,10 @@ namespace allocators {
 		}
 
 		// initialize elements of allocated storage __p with value value
-		void construct(pointer __p, const_reference __val) {
-			::new(__p) value_type(__val);
+		// Perfect-forwards, so allocator_traits::construct(a, p, std::move(x)) moves.
+		template <typename... _Args>
+		void construct(pointer __p, _Args&&... __args) noexcept(std::is_nothrow_constructible_v<value_type, _Args...>) {
+			::new(static_cast<void*>(__p)) value_type(std::forward<_Args>(__args)...);
 		}
 
 		// destroy elements of initialized storage __p
@@ -396,8 +398,10 @@ namespace allocators {
 		}
 
 		// initialize elements of allocated storage __p with value value
-		void construct(pointer __p, const_reference __val) {
-			::new(__p) value_type(__val);
+		// Perfect-forwards, so allocator_traits::construct(a, p, std::move(x)) moves.
+		template <typename... _Args>
+		void construct(pointer __p, _Args&&... __args) noexcept(std::is_nothrow_constructible_v<value_type, _Args...>) {
+			::new(static_cast<void*>(__p)) value_type(std::forward<_Args>(__args)...);
 		}
 
 		// destroy elements of initialized storage __p
