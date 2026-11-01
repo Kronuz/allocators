@@ -21,9 +21,8 @@ test/test.cc            Runnable smoke test: detects tracking mode at runtime, c
 examples/demo.cc        The counters following strings and a tracked std::map (allocators_demo, tracked build).
 CMakeLists.txt          STATIC library `allocators` (+ alias allocators::allocators); ALLOCATORS_TRACKED_MEM option; thread_local probe; configure_file; CTest test `allocators`.
 LICENSE                 MIT, Copyright (c) 2015-2019 Dubalu LLC.
-README.md                    What it is, install, quick start.
-docs/API.md                  Usage, the backends, and the tracking build option.
-docs/allocators.d2           The README diagram's source (docs/allocators.svg is rendered from it).
+README.md                    What it is, quick start, install, performance.
+docs/API.md                  Usage, the backends, the pool's sharing and thread rules, construction, the tracking build option, the resource targets.
 ARCHITECTURE.md         Internal design: the allocator template, byte accounting, the global override, the memory pool.
 ```
 

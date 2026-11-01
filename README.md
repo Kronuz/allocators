@@ -6,39 +6,31 @@ Part of [Kronuz C++ Libraries](https://github.com/Kronuz/cpp-libraries), a colle
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)
 
-A small allocation toolkit for C++20: an STL allocator over pluggable backends,
-a one-node-at-a-time memory pool, and optional accounting of every heap byte in
-the process. For finding out where memory goes, and for node-heavy containers.
-
-![allocators: STL containers through allocator or the node pool; tracking counts every byte](docs/allocators.svg)
+Allocation toolkit for C++20: STL allocators, a node pool, byte-budgeted memory resources and
+opt-in heap tracking. The `allocators::allocators` target gives containers a `malloc` or a
+byte-counting backend and a pool that hands out one node at a time, and can override the global
+`new` and `delete` to count every heap byte in the process. The header-only
+`allocators::resources` target charges allocations to nested byte accounts and reserves
+capacity before an operation runs. Reach for it to see where memory goes, to feed node-heavy
+containers, or to hold a service to a memory budget.
 
 ## ✨ Highlights
 
-- **`allocator<T, Backend>`**, standard-conforming, over `vanilla_allocator`
-  (`malloc`/`free`) or `tracked_allocator` (byte accounting).
-- **`memory_pool_allocator<T>`** for `std::list`, `std::map`, and other node
-  containers: one element at a time, freed slots reused.
-- **Whole-process accounting**, opt-in: `ALLOCATORS_TRACKED_MEM=ON` overrides the
-  global `new`/`delete`, and `total_allocated()` and `local_allocated()` report
-  live bytes for the process and the calling thread.
-- **No dependencies.**
-
-## 📦 Installation
-
-Requires a C++20 compiler and CMake 3.14 or newer; it compiles one source file.
-CI builds it on Linux (x86_64, arm64), macOS (arm64, x86_64), and FreeBSD, plus
-ASan, UBSan, and TSan builds.
-
-```cmake
-include(FetchContent)
-FetchContent_Declare(allocators
-  GIT_REPOSITORY https://github.com/Kronuz/allocators.git
-  GIT_TAG        main)
-# set(ALLOCATORS_TRACKED_MEM ON CACHE BOOL "" FORCE)   # opt in to global accounting
-FetchContent_MakeAvailable(allocators)
-
-target_link_libraries(my_app PRIVATE allocators::allocators)
-```
+- **`allocator<T, Backend>`.** A standard allocator over `vanilla_allocator` (`malloc` and
+  `free`) or `tracked_allocator`, which stamps a size header on each block and counts it.
+- **`memory_pool_allocator<T>`.** `std::list`, `std::map` and other node containers take one
+  element at a time from a pool that reuses freed slots; every copy and rebind shares the pool.
+- **Whole-process accounting, opt in.** `ALLOCATORS_TRACKED_MEM=ON` overrides the global
+  `new` and `delete`; `total_allocated()` and `local_allocated()` report live bytes for the
+  process and for the calling thread.
+- **Byte accounts.** `make_charged_resource` charges each full upstream allocation, headers and
+  alignment included, to a `ByteAccount` and its parents (up to eight levels), and throws
+  `ResourcePressure` past a limit after rolling every level back.
+- **Reservation books.** `ReservationBook<N>` reserves peak use over N dimensions before an
+  external operation and settles the real use after it.
+- **Deferred cleanup.** The optional `allocators::retirement` target (POSIX) runs final
+  destruction on a cleanup worker the caller owns.
+- **No dependencies.** Standard library only.
 
 ## 🚀 Quick start
 
@@ -47,120 +39,73 @@ target_link_libraries(my_app PRIVATE allocators::allocators)
 
 #include <cstdio>
 #include <list>
+#include <vector>
+
+template <typename T>
+using tracked = allocators::allocator<T, allocators::tracked_allocator>;
 
 int main() {
+	// A node container that takes one element at a time from a pool of reused slots.
 	std::list<int, allocators::memory_pool_allocator<int>> nodes{1, 2, 3};
 
+	// Live heap bytes, counted when the build sets ALLOCATORS_TRACKED_MEM=ON.
 	long long before = allocators::total_allocated();
-	auto* buffer = new char[1024];
-	std::printf("%lld bytes\n", allocators::total_allocated() - before);   // >= 1024 when tracking
-	delete[] buffer;
+	std::vector<long long, tracked<long long>> samples;
+	samples.reserve(1000);
+	std::printf("%lld bytes\n", allocators::total_allocated() - before);   // 8000 bytes (0 untracked)
 }
 ```
 
-Without `ALLOCATORS_TRACKED_MEM`, the counters read `0`.
+With tracking on, plain `new` and `std::allocator` move the counters too, for every
+allocation the optimizer keeps. [`examples/demo.cc`](examples/demo.cc) shows the counters
+and [`examples/resources.cc`](examples/resources.cc) the byte accounts.
 
-### Construction forwards its arguments
+## 📦 Installation
 
-`construct(p, args...)` of both allocators perfect-forwards to the element constructor, so a
-container relocating through `allocator_traits::construct(a, p, std::move(x))` moves, and a
-throwing move falls back to a copy, exactly as with `std::allocator`. A `construct(p, const T&)`
-overload copies instead: a `vector` filled by 1000 `push_back(T&&)`s then makes 2023 copies and no
-moves (`std::allocator`: no copies, 2023 moves), a deep copy of every `std::string` element.
-`test/construct.cc` compares copy, move and destroy counts with `std::allocator` for `vector`,
-`deque`, `list`, `map`, `unordered_map` and a type whose copies and moves throw. `allocators_bench`
-times `vector<int>` and `vector<std::string>` `push_back` against `std::allocator` (A/B/A, best of 11);
-`allocators_bench --counts` prints only the counts. [docs/perf/construct-forwarding.md](docs/perf/construct-forwarding.md)
-has the timings, the mutants and the platforms.
+Requires a C++20 compiler and CMake 3.14 or newer, and nothing else:
+`allocators::allocators` compiles one source file, `allocators::resources` is header-only, and
+`allocators::retirement` needs POSIX threads. CI builds it on Linux (x86_64, arm64), macOS
+(arm64, x86_64), and FreeBSD, plus ASan, UBSan, and TSan builds.
 
-### The memory pool: identity and threads
+```cmake
+include(FetchContent)
+FetchContent_Declare(allocators
+  GIT_REPOSITORY https://github.com/Kronuz/allocators.git
+  GIT_TAG        f0dc466feff294bccea4c28d44c46677bbab9b9c)  # main tracks the tip
+# set(ALLOCATORS_TRACKED_MEM ON CACHE BOOL "" FORCE)   # opt in to whole-process accounting
+FetchContent_MakeAvailable(allocators)
 
-All copies and rebinds of a `memory_pool_allocator` share one pool, so
-`A<T>(A<U>(a)) == a` and allocators of one pool compare equal whatever their value types. The
-converting constructor never allocates. A container *copy* gets its own pool: copy construction
-takes a new one (`select_on_container_copy_construction`), and copy assignment keeps the
-target's allocator (`propagate_on_container_copy_assignment` is `false_type`), so the copied
-elements are allocated from the target's pool. Move assignment and swap hand the nodes over
-together with the pool (`propagate_on_container_move_assignment` and `_swap` are `true_type`),
-and `is_always_equal` is `false_type`.
-
-A move copies the allocator, so a moved-from container keeps sharing the pool with the
-container that took its nodes. Use the pair as one unit, or give the moved-from one a pool of
-its own before another thread touches either: move-assign a fresh container to it (`a = C{}`)
-or swap it with one. Copy assignment (`a = fresh`), `a = {}` and `clear()` look like resets and
-are not: the container keeps the shared pool. Moving a container to another thread is safe
-when its source is not used again or is re-pooled first.
-
-Containers with separate pools compare unequal, such as a copy and its source (including after
-a copy assignment, which keeps the target's pool). `splice` and `merge` between them are not
-allowed, because the standard requires equal allocators. Containers that share a pool, such as
-a moved-from container and the one that took its nodes, can splice and merge.
-
-**A pool is not thread-safe**: use all allocators of one pool from one thread at a time,
-with a happens-before edge at each hand-over. Copying a container to another thread is
-safe (the copy is independent); sharing an allocator, or using a container from two threads,
-is not. Without `NDEBUG` (or with `ALLOCATORS_POOL_CHECK`) overlapping use is detected and
-reported through `allocators::set_pool_misuse_handler` (abort by default).
-
-## Bounded resources and cleanup
-
-`allocators::resources` is a separate header-only target for explicit ownership and resource limits. It neither builds nor links the legacy allocator backends or global allocation overrides. `allocators::retirement` adds a caller-owned POSIX cleanup runtime; disable its target with `ALLOCATORS_BUILD_RETIREMENT=OFF` when only accounting is needed. The compiled target follows `BUILD_SHARED_LIBS`, like the legacy allocator target.
-
-```cpp
-#include <allocators/memory_resource.h>
-#include <allocators/allocation.h>
-
-// Charge the complete upstream allocation, including headers and alignment.
-auto account = std::make_shared<allocators::ByteAccount>(1024 * 1024);
-auto resource = allocators::make_charged_resource(account);
-auto value = std::allocate_shared<int>(
-    allocators::OwnedAllocator<int>(allocators::AllocationContext(resource)), 42);
+target_link_libraries(my_app PRIVATE allocators::allocators)   # or allocators::resources, allocators::retirement
 ```
 
-A `ByteCharge` retains the account's counter state, including its ancestors, after the initiating facade is destroyed. Successful admission and release allocate no bookkeeping storage; constructing an independent account allocates its counter state once, outside its own payload quota. Pressure rolls back all ancestor charges before throwing `ResourcePressure`. `PagedStorage` also retains state and can continue allocating after the initiating facade is gone.
+Include `"allocators.h"` for the allocators, the pool and the counters, and
+`<allocators/resources.h>`, `<allocators/memory_resource.h>` or `<allocators/retirement.h>` for
+the resource targets.
 
-```cpp
-#include <allocators/resources.h>
+## 🎯 When to use it
 
-// Reserve simultaneous peak effects before beginning an external operation.
-using Vector = allocators::ResourceVector<2>;
-allocators::ReservationBook<2> book(Vector{{1000, 10}}, Vector{{200, 2}});
-auto reservation = book.try_reserve(Vector{{300, 3}}, Vector{{800, 8}});
-if (reservation) {
-    book.settle(*reservation, Vector{{250, 2}}, Vector{{100, 1}});
-}
-```
+It fits tests, benchmarks and debug builds that measure heap use, node containers that
+allocate one element at a time, and services that admit memory against a byte budget.
 
-Reservation books belong to one executor and outlive their move-only capabilities. Destroying an unresolved reservation preserves its debt and marks abandonment; only explicit cancellation or settlement releases reserved capacity. The caller proves reclaim credits and enforces protected pools, original-I/O ownership and durable deletion. Those policies are outside the shared arithmetic.
+Not for:
 
-```cpp
-#include <allocators/retirement.h>
+- **A faster general-purpose `malloc`.** Use jemalloc or mimalloc.
+- **Tracking switched on by a library.** `ALLOCATORS_TRACKED_MEM` overrides the global
+  `operator new` for the whole program, so it belongs in the executable's build.
+- **One pool across threads.** A pool is not thread-safe: use all allocators of one pool from
+  one thread at a time. Builds without `NDEBUG` detect overlapping use.
+- **Array containers on the pool.** `memory_pool_allocator` allocates one element at a time and
+  throws `std::bad_alloc` for `vector`, `deque` and the bucket array of `unordered_map`.
 
-// Final owner release enqueues cleanup; the application owns shutdown.
-auto baseline = std::make_shared<allocators::ByteAccount>(1024 * 1024);
-auto objects = std::make_shared<allocators::ByteAccount>(1024 * 1024);
-allocators::RetirementRuntime runtime(baseline);
-auto domain = runtime.domain(objects);
-auto drain = domain.close();
-drain.wait();
-runtime.shutdown();
-```
+## ⚡ Performance
 
-Retirement handles release through an intrusive queue. Payload destruction and control-block release run on the fixed cleanup worker. Keep the runtime alive until every domain drains, and retain accepted I/O owners until authentic completion before retiring them.
+`allocators_compare_pmr` times the pool against `std::allocator` (malloc) and the standard
+library's `std::pmr` resources. Each cell is the arm's time as a fraction of `std::allocator`'s
+(lower is faster), the median of 9 rounds, with a fresh pool or resource per run so creating it
+counts. Release build, Apple clang 17 with libc++:
 
-## 📊 Performance
-
-`allocators_compare_pmr` times the memory pool against `std::allocator` (malloc) and the standard library's `std::pmr` resources. It needs only the standard library:
-
-```sh
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DALLOCATORS_BUILD_BENCH=ON
-cmake --build build --target allocators_compare_pmr && ./build/allocators_compare_pmr
-```
-
-A run builds a container, works it and destroys it, with a fresh pool or resource each time, so creating the pool is in the time. The table gives each arm's time as a fraction of `std::allocator`'s (median of 9 rounds; the A/A copy of the malloc arm is within 1%; round spreads are 1.01 to 1.33). Release, Apple clang 17 with libc++, on an Apple M4 Pro and an Intel Core i9-9980HK.
-
-| Row | pool, M4 Pro | `pmr` pool, M4 Pro | pool, i9 | `pmr` pool, i9 |
-|---|---|---|---|---|
+| Row | pool, Apple M4 Pro | `pmr` pool, Apple M4 Pro | pool, Intel Core i9-9980HK | `pmr` pool, Intel Core i9-9980HK |
+|---|--:|--:|--:|--:|
 | list build, 1,000 nodes | 0.70 | 0.50 | 0.65 | 0.24 |
 | list build, 100,000 nodes | 0.58 | 0.34 | 0.68 | 0.27 |
 | map churn, 1,000 nodes | 0.56 | 0.68 | 0.57 | 0.65 |
@@ -168,42 +113,48 @@ A run builds a container, works it and destroys it, with a fresh pool or resourc
 | list steady, 1,000 nodes | 0.61 | 0.32 | 0.70 | 0.20 |
 | list steady, 100,000 nodes | 0.56 | 0.30 | 0.70 | 0.20 |
 
-`pmr::monotonic_buffer_resource`, which never frees, builds a list in 0.26 to 0.27 (M4 Pro) and 0.13 to 0.21 (i9) of malloc's time. The pool is faster than `pmr::unsynchronized_pool_resource` on map churn and slower on lists. The rows are `list<int>` (build, sum, destroy; and 20 n `push_back` and `pop_front` pairs for steady) and `map<int, int>` (n random inserts, erase the n/2 smallest, n/2 more inserts).
+The pool beats `pmr::unsynchronized_pool_resource` on map churn and loses to it on lists.
+`pmr::monotonic_buffer_resource`, which never frees, builds a list in 0.26 to 0.27 (M4 Pro) and
+0.13 to 0.21 (i9) of malloc's time. The list rows build, sum and destroy a `list<int>` (steady
+adds 20n `push_back` and `pop_front` pairs); the map rows insert n random keys into a
+`map<int, int>`, erase the n/2 smallest and insert n/2 more.
 
-## 🎯 When to use it
+```sh
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DALLOCATORS_BUILD_BENCH=ON
+cmake --build build --target allocators_compare_pmr && ./build/allocators_compare_pmr
+```
 
-- ✅ Measuring heap use in tests, benchmarks, or a debug build of a service.
-- ✅ Node-based containers that allocate one element at a time.
-- ⚠️ Tracking overrides the global `operator new` for the whole program; turn it
-  on in the executable's build, not from a library.
-- ❌ A general-purpose faster `malloc`: use jemalloc or mimalloc.
+[docs/perf/](docs/perf/) has the construction-forwarding measurements.
 
 ## 📚 Documentation
 
-- [docs/API.md](docs/API.md): usage of each allocator and the tracking build
-  option.
-- [ARCHITECTURE.md](ARCHITECTURE.md): the size headers, the counters, and the
-  pool.
-- [examples/demo.cc](examples/demo.cc): the counters in action.
-- [AGENTS.md](AGENTS.md): repository map, invariants, and traps.
-- [CHANGELOG.md](CHANGELOG.md): behavior changes, newest first.
+- [docs/API.md](docs/API.md): each allocator, the pool's sharing and thread rules, the tracking
+  option, and the resource and retirement targets.
+- [ARCHITECTURE.md](ARCHITECTURE.md): the size headers, the counters and the pool.
+- [docs/perf/](docs/perf/): measurement method and results.
+- [CHANGELOG.md](CHANGELOG.md): changes, newest first.
+- [AGENTS.md](AGENTS.md): repository map, invariants and traps.
+- [Catalog entry](https://github.com/Kronuz/cpp-libraries/blob/main/AGENTS.md#allocators) in
+  Kronuz C++ Libraries.
 
 ## 🛠️ Building and testing
 
 ```sh
 cmake -B build && cmake --build build && ctest --test-dir build
 cmake -B build-tracked -DALLOCATORS_TRACKED_MEM=ON && cmake --build build-tracked && ctest --test-dir build-tracked
+cmake -B build-bench -DCMAKE_BUILD_TYPE=Release -DALLOCATORS_BUILD_BENCH=ON && cmake --build build-bench
 ```
 
-The same test checks whichever contract the build has.
+The same tests check whichever contract the build has.
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome. Read [AGENTS.md](AGENTS.md) first. CI must
-pass on every platform.
+Issues and pull requests are welcome. Read [AGENTS.md](AGENTS.md) and the catalog's
+[rules of engagement](https://github.com/Kronuz/cpp-libraries/blob/main/AGENTS.md#rules-of-engagement)
+first; CI must pass on every platform.
 
 ## 📄 License
 
-MIT, Copyright (c) 2015-2018 Dubalu LLC; the memory pool carries a BSD-2-Clause
-notice from moya-lang.org. See [LICENSE](LICENSE). Extracted from
-[Xapiand](https://github.com/Kronuz/Xapiand).
+MIT, Copyright (c) 2026 Germán Méndez Bravo and (c) 2015-2020 Dubalu LLC; the memory pool in
+`allocators.h` carries a BSD-2-Clause notice from moya-lang.org. See [LICENSE](LICENSE).
+Extracted from [Xapiand](https://github.com/Kronuz/Xapiand).
