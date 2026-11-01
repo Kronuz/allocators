@@ -7,6 +7,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `memory_pool_allocator` set `propagate_on_container_copy_assignment` to
+  `true_type`, so `e = d` made `e` use `d`'s pool: the copy shared an
+  unsynchronized pool with its source, against the documented "a container copy
+  gets its own pool". Two threads churning `d` and `e` raced on the free list
+  and corrupted the heap (ASan SEGV in `list::pop_front`, TSan race between
+  `pool_class::allocate` and `deallocate`). It is now `false_type`: the target
+  keeps its allocator and allocates the copied elements from its own pool. Move
+  assignment and swap still propagate, and `is_always_equal` is still `false_type`.
+  A moved-from container keeps sharing the pool with the container that took its
+  nodes, which the Allocator move requirement demands; the README says so.
+  `test/propagation.cc` covers copy, move and swap over `list`, `forward_list`,
+  `set`, `multiset`, `map` and `multimap`, the array containers the pool refuses
+  (`vector`, `deque`, `unordered_map`), and the stateless allocator over five
+  containers.
 - `memory_pool_allocator`'s converting constructor started a fresh pool, so
   `A<T>(A<U>(a)) != a`, the `noexcept` conversion allocated (a `bad_alloc` would
   terminate), container swap of lists with different pools was undefined

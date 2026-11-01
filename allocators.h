@@ -301,11 +301,16 @@ namespace allocators {
 	// A default-constructed allocator starts a new family (one allocation); the converting
 	// constructor only copies the handle: it never allocates and cannot throw.
 	//
-	// Containers. propagate_on_container_{copy,move}_assignment and _swap are true,
-	// because blocks are owned by the family and travel with the allocator, so these
-	// operations never fall back to element-wise moves. A container *copy* (via
-	// select_on_container_copy_construction) gets a NEW, independent pool, so a copy
-	// handed to another thread shares nothing with the original.
+	// Containers. A container *copy* gets its own pool, by construction
+	// (select_on_container_copy_construction returns a new family) and by assignment
+	// (propagate_on_container_copy_assignment is false: the target keeps its allocator
+	// and allocates the copied elements from its own pool), so a copy handed to another
+	// thread shares nothing with the original. Move assignment and swap exchange blocks
+	// wholesale, so propagate_on_container_{move_assignment,swap} are true: the family
+	// travels with the nodes and these operations never fall back to element-wise moves.
+	// is_always_equal is false; equality is "same family". A moved-from container keeps
+	// the family (a move copies the allocator, as the Allocator requirements demand), so
+	// it shares the pool with the container that took its nodes.
 	//
 	// Thread safety. A pool is NOT thread-safe: all allocators of one family (the
 	// container, its copies made through the allocator rather than the container, and
@@ -333,7 +338,7 @@ namespace allocators {
 		typedef const _Tp& const_reference;
 		typedef _Tp value_type;
 
-		using propagate_on_container_copy_assignment = std::true_type;
+		using propagate_on_container_copy_assignment = std::false_type;
 		using propagate_on_container_move_assignment = std::true_type;
 		using propagate_on_container_swap = std::true_type;
 		using is_always_equal = std::false_type;

@@ -97,11 +97,15 @@ allocator starts a new family (one allocation). Containers copy and rebind their
 allocator freely, which is why the pool lives in the shared family and not in the
 allocator value.
 
-**Propagation.** `propagate_on_container_copy_assignment`, `_move_assignment` and
-`_swap` are `true_type` and `is_always_equal` is `false_type`: blocks are owned by
-the family and travel with the allocator, so container swap and move-assign keep their
-nodes (no element-wise fallback, no UB on swap). `select_on_container_copy_construction`
-returns a **new** pool, so a copied container shares nothing with the original.
+**Propagation.** `propagate_on_container_move_assignment` and `_swap` are `true_type`
+and `is_always_equal` is `false_type`: blocks are owned by the family and travel with
+the allocator, so container swap and move-assign keep their nodes (no element-wise
+fallback, no UB on swap). `propagate_on_container_copy_assignment` is `false_type`
+and `select_on_container_copy_construction` returns a **new** pool, so a copied
+container shares nothing with the original, whether it is constructed or assigned
+from it: the target allocates the copied elements from its own pool. A move copies the
+allocator (the Allocator requirements say the source's allocator is unchanged), so a
+moved-from container still shares the family with the container that took its nodes.
 
 `allocate(1)` pops the free list, else bumps the current chunk, else adds a chunk. It
 refuses any request other than exactly one element (`n != 1` throws `bad_alloc`),

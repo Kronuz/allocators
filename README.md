@@ -64,9 +64,14 @@ Without `ALLOCATORS_TRACKED_MEM`, the counters read `0`.
 
 All copies and rebinds of a `memory_pool_allocator` share one pool, so
 `A<T>(A<U>(a)) == a` and allocators of one pool compare equal whatever their value types. The
-converting constructor never allocates. Container assignment and swap propagate the pool
-(`propagate_on_container_*` are `true_type`, `is_always_equal` is `false_type`), and a
-container *copy* gets a new pool.
+converting constructor never allocates. A container *copy* gets its own pool: copy construction
+takes a new one (`select_on_container_copy_construction`), and copy assignment keeps the
+target's allocator (`propagate_on_container_copy_assignment` is `false_type`), so the copied
+elements are allocated from the target's pool. Move assignment and swap hand the nodes over
+together with the pool (`propagate_on_container_move_assignment` and `_swap` are `true_type`),
+and `is_always_equal` is `false_type`. A move copies the allocator, so a moved-from container
+keeps sharing the pool with the container that took its nodes; use the pair as one unit, or
+give the moved-from one a pool of its own by move-assigning a fresh container to it.
 
 **A pool is not thread-safe**: use all allocators of one pool from one thread at a time,
 with a happens-before edge at each hand-over. Copying a container to another thread is

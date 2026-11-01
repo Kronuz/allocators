@@ -66,7 +66,7 @@ struct Big { char bytes[200]; };
 static_assert(std::is_nothrow_constructible_v<memory_pool_allocator<int>, const memory_pool_allocator<long>&>);
 static_assert(std::is_nothrow_copy_constructible_v<memory_pool_allocator<int>>);
 static_assert(std::is_nothrow_copy_assignable_v<memory_pool_allocator<int>>);
-static_assert(std::is_same_v<std::allocator_traits<memory_pool_allocator<int>>::propagate_on_container_copy_assignment, std::true_type>);
+static_assert(std::is_same_v<std::allocator_traits<memory_pool_allocator<int>>::propagate_on_container_copy_assignment, std::false_type>);
 static_assert(std::is_same_v<std::allocator_traits<memory_pool_allocator<int>>::propagate_on_container_move_assignment, std::true_type>);
 static_assert(std::is_same_v<std::allocator_traits<memory_pool_allocator<int>>::propagate_on_container_swap, std::true_type>);
 static_assert(std::is_same_v<std::allocator_traits<memory_pool_allocator<int>>::is_always_equal, std::false_type>);
@@ -180,7 +180,8 @@ static void test_equality_matrix() {
 	std::printf("pool OK: equality matrix over 2 pools x 3 types\n");
 }
 
-// propagate_on_container_*: nodes travel with the allocator; no element-wise fallback.
+// propagate_on_container_*: nodes travel with the allocator on swap and move assignment (no
+// element-wise fallback); copy assignment keeps the target's allocator.
 static void test_container_propagation() {
 	using List = std::list<int, memory_pool_allocator<int>>;
 	List a{1, 2, 3}, b{10, 20, 30, 40};
@@ -204,16 +205,17 @@ static void test_container_propagation() {
 
 	List d{5, 6};
 	List e{1};
+	const auto e_allocator = e.get_allocator();
 	CHECK(d.get_allocator() != e.get_allocator());
-	e = d;   // POCCA: e takes d's allocator, then copies the elements
-	CHECK(e.get_allocator() == d.get_allocator());
+	e = d;   // no POCCA: e keeps its own pool and copies the elements into it
+	CHECK(e.get_allocator() == e_allocator && e.get_allocator() != d.get_allocator());
 	CHECK(e.size() == 2 && e.front() == 5);
 
 	std::map<int, int, std::less<int>, memory_pool_allocator<std::pair<const int, int>>> m1{{1, 1}}, m2{{2, 2}, {3, 3}};
 	m1.swap(m2);
 	m1[4] = 4; m2[5] = 5;
 	CHECK(m1.size() == 3 && m2.size() == 2);
-	std::printf("pool OK: swap, move- and copy-assignment propagate the pool\n");
+	std::printf("pool OK: swap and move-assignment propagate the pool, copy-assignment keeps it\n");
 }
 
 // A container copy starts its own pool (and so can be used on another thread);

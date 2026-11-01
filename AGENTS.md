@@ -12,6 +12,7 @@ allocators.h            Declares allocator<T, Backend>, vanilla_allocator, track
 allocators.cc           Defines the malloc/free wrappers, the two backends, the byte counters, and (tracking on) the global new/delete override. Nearly verbatim; see "Standalone vs. Xapiand".
 allocators_config.h.in  CMake template for the generated allocators_config.h: #cmakedefine's XAPIAND_TRACKED_MEM and HAS_THREAD_LOCAL. Replaces Xapiand's "config.h".
 test/pool.cc            Memory pool: rebind identity, equality matrix, propagation traits, no-allocation conversion, cross-thread copy, overlap detection (its own ctest target, TSan-clean).
+test/propagation.cc     Memory pool through container copy, move and swap (node and array containers, two-thread churn after a copy assignment), plus the stateless allocator over five containers; run under ASan and TSan.
 test/test.cc            Runnable smoke test: detects tracking mode at runtime, checks the counters, the allocator over both backends, and the memory pool.
 examples/demo.cc        The counters following strings and a tracked std::map (allocators_demo, tracked build).
 CMakeLists.txt          STATIC library `allocators` (+ alias allocators::allocators); ALLOCATORS_TRACKED_MEM option; thread_local probe; configure_file; CTest test `allocators`.
@@ -139,7 +140,9 @@ other local include. Only `<config.h>` had to go.
   allocator copy or rebind is gone. Nodes stay valid while any allocator of the family
   lives, which a container's own allocator guarantees.
 - **The pool is single-threaded per family.** Copies and rebinds share one pool; a
-  container copy gets a fresh one. Do not use two allocators of one family from two
+  container copy gets a fresh one (by construction, and by assignment because the
+  target keeps its own allocator). A moved-from container keeps sharing with the
+  container that took its nodes. Do not use two allocators of one family from two
   threads at once. `ALLOCATORS_POOL_CHECK` (on without `NDEBUG`) reports overlap.
 - **The pool only allocates one element.** `allocate(n)` throws for `n != 1`. It
   is for node-based containers (`std::list`, `std::map`), not `std::vector`.

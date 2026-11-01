@@ -98,6 +98,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   target_link_libraries(allocators_pool_test PRIVATE allocators Threads::Threads)
   target_compile_definitions(allocators_pool_test PRIVATE ALLOCATORS_POOL_CHECK=1)
   add_test(NAME allocators_pool COMMAND allocators_pool_test)
+  # The pool through container copy, move and swap (node and array containers), run under
+  # ASan and TSan: a copy-assigned container must not share its source's pool.
+  add_executable(allocators_propagation_test test/propagation.cc)
+  target_link_libraries(allocators_propagation_test PRIVATE allocators Threads::Threads)
+  target_compile_definitions(allocators_propagation_test PRIVATE ALLOCATORS_POOL_CHECK=1)
+  add_test(NAME allocators_propagation COMMAND allocators_propagation_test)
 
   # TSan's runtime defines operator new and delete itself, so the tracked mode cannot
   # link under it. CI passes sanitizer flags through the build type's variable.
