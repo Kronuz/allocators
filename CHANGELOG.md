@@ -24,6 +24,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `bench/compare_pmr.cc` (`-DALLOCATORS_BUILD_BENCH=ON`, target
+  `allocators_compare_pmr`): the pool against `std::allocator`,
+  `std::pmr::unsynchronized_pool_resource` and `std::pmr::monotonic_buffer_resource`
+  on list builds, map churn and steady list churn.
 - `docs/perf/construct-forwarding.md`: the method, counts, timings and mutants
   of the `construct` forwarding below.
 

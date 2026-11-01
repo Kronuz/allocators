@@ -112,6 +112,14 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   add_executable(allocators_bench bench/bench.cc)
   target_link_libraries(allocators_bench PRIVATE allocators)
 
+  # The pool against std::pmr resources (std::allocator, unsynchronized_pool_resource,
+  # monotonic_buffer_resource). Standard library only; not built by default.
+  option(ALLOCATORS_BUILD_BENCH "Build allocators_compare_pmr, the pool against std::pmr" OFF)
+  if(ALLOCATORS_BUILD_BENCH)
+    add_executable(allocators_compare_pmr bench/compare_pmr.cc)
+    target_link_libraries(allocators_compare_pmr PRIVATE allocators)
+  endif()
+
   # TSan's runtime defines operator new and delete itself, so the tracked mode cannot
   # link under it. CI passes sanitizer flags through the build type's variable.
   string(TOUPPER "${CMAKE_BUILD_TYPE}" _allocators_build_type)
