@@ -99,29 +99,30 @@ Not for:
 
 ## ⚡ Performance
 
-`allocators_compare_pmr` builds, works and destroys one container with each of four allocators
-and times the whole run, creating the pool or resource included. The arms are `std::allocator`
+`allocators_compare_pmr` builds, works and destroys one container with each of four allocators and
+times the whole run, creating the pool or resource included. The arms are `std::allocator`
 (malloc, the baseline), `pool` (this library's `memory_pool_allocator`), `pmr pool`
-(`std::pmr::unsynchronized_pool_resource`) and `pmr monotonic` (`std::pmr::monotonic_buffer_resource`,
-which never frees, so only the list build rows have it). The `std::pmr` arms are libc++ 20.1 from
-Apple clang 17.0.0. Every arm of a row computes the same checksum, compared before timing. Each
-cell is the arm's time as a fraction of `std::allocator`'s for that row (below 1 is faster than
-malloc), the median of 9 rounds, with a fresh pool or resource per run.
+(`std::pmr::unsynchronized_pool_resource`) and `pmr monotonic`
+(`std::pmr::monotonic_buffer_resource`, which never frees, so only the list build rows have it).
+The `std::pmr` arms are libc++ 20.1 from Apple clang 17.0.0. Every arm of a row computes the same
+checksum, compared before timing. Each cell is the arm's time as a fraction of `std::allocator`'s
+for that row (below 1 is faster than malloc), the median of 9 rounds, with a fresh pool or
+resource per run; the baseline run twice differs from itself by at most 2%.
 
 | Row | pool, M4 Pro | `pmr pool`, M4 Pro | pool, i9-9980HK | `pmr pool`, i9-9980HK |
 |---|--:|--:|--:|--:|
-| list build, 1,000 nodes | 0.70 | 0.50 | 0.65 | 0.24 |
-| list build, 100,000 nodes | 0.58 | 0.34 | 0.68 | 0.27 |
-| map churn, 1,000 nodes | 0.56 | 0.68 | 0.57 | 0.65 |
-| map churn, 100,000 nodes | 0.82 | 0.99 | 0.81 | 0.92 |
-| list steady, 1,000 nodes | 0.61 | 0.32 | 0.70 | 0.20 |
-| list steady, 100,000 nodes | 0.56 | 0.30 | 0.70 | 0.20 |
+| list build, 1,000 nodes | 0.68 | 0.50 | 0.65 | 0.24 |
+| list build, 100,000 nodes | 0.59 | 0.34 | 0.66 | 0.27 |
+| map churn, 1,000 nodes | 0.55 | 0.68 | 0.58 | 0.66 |
+| map churn, 100,000 nodes | 0.82 | 0.99 | 0.70 | 0.78 |
+| list steady, 1,000 nodes | 0.61 | 0.32 | 0.73 | 0.20 |
+| list steady, 100,000 nodes | 0.56 | 0.29 | 0.72 | 0.20 |
 
-The pool is ahead of `pmr pool` on map churn and behind it on lists. `pmr monotonic` builds a
-list in 0.26 to 0.27 of malloc's time on the M4 Pro and 0.13 to 0.21 on the i9. The list rows
-build, sum and destroy a `list<int>` of n nodes (steady adds 20n `push_back` and `pop_front`
-pairs); the map rows insert n random keys into a `map<int, int>`, erase the n/2 smallest and
-insert n/2 more.
+The pool is ahead of `pmr pool` on map churn, behind it on list build and list steady. `pmr
+monotonic` builds a list in 0.26 to 0.27 of malloc's time on the M4 Pro and 0.13 to 0.18 on the
+i9. The list rows build, sum and destroy a `list<int>` of n nodes (steady adds 20n `push_back` and
+`pop_front` pairs); the map rows insert n random keys into a `map<int, int>`, erase the n/2
+smallest and insert n/2 more.
 
 Apple M4 Pro (macOS 26.7) and Intel Core i9-9980HK (macOS 15.8), Release (`-O3 -DNDEBUG`) with
 Apple clang 17.0.0:
