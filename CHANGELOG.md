@@ -3,6 +3,30 @@
 All notable changes to `allocators` are recorded here, newest first. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 2026-11-01
+
+### Documentation
+
+- The README's pool section says what a moved-from container may do: it keeps the
+  pool it shares with the container that took its nodes, so it must be given a
+  pool of its own (move-assign a fresh container, or swap) before another
+  thread uses either, and `a = {}` and `clear()` do not do that. It also says
+  that containers with separate pools, such as a copy-assigned pair, compare
+  unequal, so `splice` and `merge` between them are not allowed.
+
+### Tests
+
+- `test/propagation.cc` checks, over `list`, `forward_list`, `set`, `multiset`,
+  `map` and `multimap`, that `a = {}` and `clear()` keep a moved-from
+  container's pool, that it can `splice` or `merge` into the container that took
+  its nodes and keep churning, and that a copy, a copy-assigned container and
+  its source have unequal allocators.
+
+### Added
+
+- `docs/perf/construct-forwarding.md`: the method, counts, timings and mutants
+  of the `construct` forwarding below.
+
 ## 2026-10-31
 
 ### Fixed

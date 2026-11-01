@@ -70,7 +70,8 @@ moves (`std::allocator`: no copies, 2023 moves), a deep copy of every `std::stri
 `test/construct.cc` compares copy, move and destroy counts with `std::allocator` for `vector`,
 `deque`, `list`, `map`, `unordered_map` and a type whose copies and moves throw. `allocators_bench`
 times `vector<int>` and `vector<std::string>` `push_back` against `std::allocator` (A/B/A, best of 11);
-`allocators_bench --counts` prints only the counts.
+`allocators_bench --counts` prints only the counts. [docs/perf/construct-forwarding.md](docs/perf/construct-forwarding.md)
+has the timings, the mutants and the platforms.
 
 ### The memory pool: identity and threads
 
@@ -81,9 +82,19 @@ takes a new one (`select_on_container_copy_construction`), and copy assignment k
 target's allocator (`propagate_on_container_copy_assignment` is `false_type`), so the copied
 elements are allocated from the target's pool. Move assignment and swap hand the nodes over
 together with the pool (`propagate_on_container_move_assignment` and `_swap` are `true_type`),
-and `is_always_equal` is `false_type`. A move copies the allocator, so a moved-from container
-keeps sharing the pool with the container that took its nodes; use the pair as one unit, or
-give the moved-from one a pool of its own by move-assigning a fresh container to it.
+and `is_always_equal` is `false_type`.
+
+A move copies the allocator, so a moved-from container keeps sharing the pool with the
+container that took its nodes. Use the pair as one unit, or give the moved-from one a pool of
+its own before another thread touches either: move-assign a fresh container to it (`a = C{}`)
+or swap it with one. Copy assignment (`a = fresh`), `a = {}` and `clear()` look like resets and
+are not: the container keeps the shared pool. Moving a container to another thread is safe
+when its source is not used again or is re-pooled first.
+
+Containers with separate pools compare unequal, such as a copy and its source (including after
+a copy assignment, which keeps the target's pool). `splice` and `merge` between them are not
+allowed, because the standard requires equal allocators. Containers that share a pool, such as
+a moved-from container and the one that took its nodes, can splice and merge.
 
 **A pool is not thread-safe**: use all allocators of one pool from one thread at a time,
 with a happens-before edge at each hand-over. Copying a container to another thread is

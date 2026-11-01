@@ -73,6 +73,11 @@ static void drop_first(List& c) { c.pop_front(); }
 static void drop_first(Fwd& c) { c.pop_front(); }
 template <class C> static void drop_first(C& c) { c.erase(c.begin()); }
 
+// Move every node of `from` into `to` (splice and merge need equal allocators).
+static void join(List& to, List& from) { to.splice(to.end(), from); }
+static void join(Fwd& to, Fwd& from) { to.splice_after(to.before_begin(), from); }
+template <class C> static void join(C& to, C& from) { to.merge(from); }
+
 static int key(int v) { return v; }
 static int key(const std::pair<const int, int>& v) { return v.first; }
 
@@ -187,6 +192,32 @@ static void test_node_container(const char* name) {
 		CHECK(values(a) == values(twin));
 		a = make<C>(7000, 3);       // a move assignment from a fresh container: a gets its own pool
 		CHECK(!shares(a.get_allocator(), taken.get_allocator()));
+	}
+	{   // Neither `a = {}` nor clear() gives a moved-from container a pool of its own: both keep
+		// the family it shares with the container that took its nodes. Containers that share a
+		// pool have equal allocators, so splice and merge between them are allowed.
+		C a = make<C>(0, 40);
+		C taken(std::move(a));
+		a = {};
+		CHECK(a.empty() && shares(a.get_allocator(), taken.get_allocator()));
+		add(a, 1);
+		a.clear();
+		CHECK(a.empty() && shares(a.get_allocator(), taken.get_allocator()));
+		for (int i = 0; i < 3; ++i) add(a, 9000 + i);
+		const std::size_t before = values(taken).size() + values(a).size();
+		join(taken, a);
+		CHECK(a.empty() && values(taken).size() == before);
+		churn(taken, 100, next);
+		CHECK(values(taken).size() == before);
+	}
+	{   // Separate pools compare unequal, so splice and merge between them are outside the
+		// container requirements: a copy and its source, and a copy-assigned pair.
+		C d = make<C>(0, 10), e = make<C>(1000, 5);
+		CHECK(!(d.get_allocator() == e.get_allocator()));
+		e = d;
+		CHECK(!(d.get_allocator() == e.get_allocator()));
+		C copy(d);
+		CHECK(!(d.get_allocator() == copy.get_allocator()));
 	}
 	{   // The failure the contract rules out: after a copy assignment, two threads each
 		// churn their own container. Run under ASan and TSan; with a shared pool this is a
