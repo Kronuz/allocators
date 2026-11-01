@@ -27,7 +27,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `bench/compare_pmr.cc` (`-DALLOCATORS_BUILD_BENCH=ON`, target
   `allocators_compare_pmr`): the pool against `std::allocator`,
   `std::pmr::unsynchronized_pool_resource` and `std::pmr::monotonic_buffer_resource`
-  on list builds, map churn and steady list churn.
+  on list builds, map churn and steady list churn. The README states its numbers on an
+  Apple M4 Pro and an Intel i9-9980HK: the pool takes 0.56 to 0.82 of malloc's time, and
+  `pmr::unsynchronized_pool_resource` is 0.20 to 0.50 on lists and 0.65 to 0.99 on map churn.
 - `docs/perf/construct-forwarding.md`: the method, counts, timings and mutants
   of the `construct` forwarding below.
 

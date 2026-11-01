@@ -12,9 +12,11 @@ allocators.h            Declares allocator<T, Backend>, vanilla_allocator, track
 allocators.cc           Defines the malloc/free wrappers, the two backends, the byte counters, and (tracking on) the global new/delete override. Nearly verbatim; see "Standalone vs. Xapiand".
 allocators_config.h.in  CMake template for the generated allocators_config.h: #cmakedefine's XAPIAND_TRACKED_MEM and HAS_THREAD_LOCAL. Replaces Xapiand's "config.h".
 test/pool.cc            Memory pool: rebind identity, equality matrix, propagation traits, no-allocation conversion, cross-thread copy, overlap detection (its own ctest target, TSan-clean).
-test/propagation.cc     Memory pool through container copy, move and swap (node and array containers, two-thread churn after a copy assignment), plus the stateless allocator over five containers; run under ASan and TSan.
+test/propagation.cc     Memory pool through container copy, move and swap (node and array containers, two-thread churn after a copy assignment, a moved-from container's pool and splice/merge, unequal pools after a copy), plus the stateless allocator over five containers; run under ASan and TSan.
 test/construct.cc       construct/destroy forwarding: copy, move and destroy counts of vector, deque, list, map, unordered_map and a throwing type equal std::allocator's (its own ctest target).
 bench/bench.cc          vector push_back through std::allocator and allocators::allocator (target allocators_bench; --counts prints only the copy and move counts).
+bench/compare_pmr.cc    The pool against std::allocator and std::pmr resources on list builds, map churn and steady list churn (target allocators_compare_pmr, -DALLOCATORS_BUILD_BENCH=ON).
+docs/perf/construct-forwarding.md  Copy and move counts, timings and mutants of the construct forwarding.
 test/test.cc            Runnable smoke test: detects tracking mode at runtime, checks the counters, the allocator over both backends, and the memory pool.
 examples/demo.cc        The counters following strings and a tracked std::map (allocators_demo, tracked build).
 CMakeLists.txt          STATIC library `allocators` (+ alias allocators::allocators); ALLOCATORS_TRACKED_MEM option; thread_local probe; configure_file; CTest test `allocators`.

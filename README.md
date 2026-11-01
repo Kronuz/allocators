@@ -148,6 +148,28 @@ runtime.shutdown();
 
 Retirement handles release through an intrusive queue. Payload destruction and control-block release run on the fixed cleanup worker. Keep the runtime alive until every domain drains, and retain accepted I/O owners until authentic completion before retiring them.
 
+## 📊 Performance
+
+`allocators_compare_pmr` times the memory pool against `std::allocator` (malloc) and the standard library's `std::pmr` resources. It needs only the standard library:
+
+```sh
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DALLOCATORS_BUILD_BENCH=ON
+cmake --build build --target allocators_compare_pmr && ./build/allocators_compare_pmr
+```
+
+A run builds a container, works it and destroys it, with a fresh pool or resource each time, so creating the pool is in the time. The table gives each arm's time as a fraction of `std::allocator`'s (median of 9 rounds; the A/A copy of the malloc arm is within 1%; round spreads are 1.01 to 1.33). Release, Apple clang 17 with libc++, on an Apple M4 Pro and an Intel Core i9-9980HK.
+
+| Row | pool, M4 Pro | `pmr` pool, M4 Pro | pool, i9 | `pmr` pool, i9 |
+|---|---|---|---|---|
+| list build, 1,000 nodes | 0.70 | 0.50 | 0.65 | 0.24 |
+| list build, 100,000 nodes | 0.58 | 0.34 | 0.68 | 0.27 |
+| map churn, 1,000 nodes | 0.56 | 0.68 | 0.57 | 0.65 |
+| map churn, 100,000 nodes | 0.82 | 0.99 | 0.81 | 0.92 |
+| list steady, 1,000 nodes | 0.61 | 0.32 | 0.70 | 0.20 |
+| list steady, 100,000 nodes | 0.56 | 0.30 | 0.70 | 0.20 |
+
+`pmr::monotonic_buffer_resource`, which never frees, builds a list in 0.26 to 0.27 (M4 Pro) and 0.13 to 0.21 (i9) of malloc's time. The pool is faster than `pmr::unsynchronized_pool_resource` on map churn and slower on lists. The rows are `list<int>` (build, sum, destroy; and 20 n `push_back` and `pop_front` pairs for steady) and `map<int, int>` (n random inserts, erase the n/2 smallest, n/2 more inserts).
+
 ## 🎯 When to use it
 
 - ✅ Measuring heap use in tests, benchmarks, or a debug build of a service.
