@@ -5,6 +5,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 2026-11-01
 
+### Fixed
+
+- The tracked build's `operator new` and `tracked_allocator::allocate` returned blocks that were 8 modulo 16 on
+  Apple arm64, where `std::max_align_t` is 8 bytes and `__STDCPP_DEFAULT_NEW_ALIGNMENT__` is 16: the size header in
+  front of each block was `alignof(std::max_align_t)` bytes. UBSan reported every new-expression of a class (`constructor
+  call on misaligned address ... for type 'allocators::detail::pool_class', which requires 16 byte alignment`) and
+  `allocators_tracked` aborted under ASan and UBSan on an Apple M1 Pro. START had the same header (`allocators.cc` is
+  unchanged since), so the blocks were misaligned there too: a new-expression of a 16-aligned type aborts under UBSan with START's
+  `allocators.cc`; START's own test constructed no such object; since `085331c` the pool's size classes are made with
+  `std::make_unique`, and the tracked test reaches one. The header is now the larger of the two alignments.
+  `test/test.cc` (`allocators` and `allocators_tracked`) checks that every form of `operator new`, both backends and a
+  new-expression of a type aligned to the default new alignment return blocks aligned to it: it fails on the M1 Pro with
+  the old header (`CHECK failed: default_aligned(...)`, and the UBSan report) and passes with the new one, in the tracked
+  and the untracked build, and the suite passes under ASan and UBSan there.
+
 ### Known performance regression
 
 - `memory_pool_allocator<T>::allocate(1)` then `deallocate` of one block, over and over, is slower than at START

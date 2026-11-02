@@ -12,8 +12,10 @@
 //
 // Build via CMake: cmake -B build -DALLOCATORS_TRACKED_MEM=ON && cmake --build build && ctest --test-dir build
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <initializer_list>
 #include <list>
 #include <map>
 #include <new>
@@ -208,6 +210,60 @@ static void test_memory_pool_containers() {
 }
 
 
+// ---------------------------------------------------------------------------
+// Every form of the global operator new, tracked or not, and the backends' allocate
+// return memory aligned to __STDCPP_DEFAULT_NEW_ALIGNMENT__. The tracked build puts a
+// size header in front of each block; with a header smaller than that alignment
+// (8 bytes on Apple arm64, where std::max_align_t is 8 and the default new alignment
+// is 16) every block was 8 modulo 16, and UBSan reported any new-expression
+// ("constructor call on misaligned address"). The new-expressions below fail under
+// -fsanitize=alignment with such a header; the CHECKs fail without the sanitizer.
+// ---------------------------------------------------------------------------
+
+#ifdef __STDCPP_DEFAULT_NEW_ALIGNMENT__
+constexpr std::size_t default_new_alignment = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
+#else
+constexpr std::size_t default_new_alignment = alignof(std::max_align_t);
+#endif
+
+struct alignas(default_new_alignment) NewAligned { char bytes[48]; };
+
+static bool default_aligned(const void* p) {
+	return reinterpret_cast<std::uintptr_t>(p) % default_new_alignment == 0;
+}
+
+static void test_new_alignment() {
+	for (std::size_t n : {1, 2, 7, 8, 9, 15, 16, 17, 24, 48, 56, 64, 100, 4096}) {
+		void* a = ::operator new(n);
+		void* b = ::operator new[](n);
+		void* c = ::operator new(n, std::nothrow);
+		void* d = ::operator new[](n, std::nothrow);
+		void* e = allocators::tracked_allocator::allocate(n);
+		void* f = allocators::vanilla_allocator::allocate(n);
+		CHECK(default_aligned(a) && default_aligned(b) && default_aligned(c) && default_aligned(d));
+		CHECK(default_aligned(e) && default_aligned(f));
+		::operator delete(a);
+		::operator delete[](b);
+		::operator delete(c);
+		::operator delete[](d);
+		allocators::tracked_allocator::deallocate(e);
+		allocators::vanilla_allocator::deallocate(f);
+	}
+	NewAligned* one = new NewAligned;
+	CHECK(default_aligned(one));
+	delete one;
+	NewAligned* many = new NewAligned[3];
+	CHECK(default_aligned(many));
+	delete[] many;
+	// The pool's own bookkeeping (a size class per block size) is made with new-expressions;
+	// its blocks are aligned to std::max_align_t only, so they are not checked here.
+	allocators::memory_pool_allocator<long> pool;
+	long* block = pool.allocate(1);
+	pool.deallocate(block, 1);
+	std::printf("allocators new alignment OK: every operator new form and both backends return %zu-byte aligned blocks\n", default_new_alignment);
+}
+
+
 int main() {
 	bool tracked = tracking_enabled();
 	std::printf("allocators: tracking %s\n", tracked ? "ENABLED" : "disabled");
@@ -220,6 +276,7 @@ int main() {
 	exercise_vector<allocators::tracked_allocator>("tracked_allocator");
 	test_memory_pool();
 	test_memory_pool_containers();
+	test_new_alignment();
 
 	std::printf("all allocators tests passed\n");
 	return 0;

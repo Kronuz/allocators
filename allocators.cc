@@ -77,8 +77,18 @@
 namespace allocators {
 	// Allocating Aligned Memory Blocks
 	// The address of a block returned by malloc or realloc is always a
-	// multiple of eight (or sixteen on 64-bit systems).
+	// multiple of eight (or sixteen on 64-bit systems). The tracked build puts a
+	// header of `alignment` bytes in front of every block, so `alignment` must be
+	// at least what `operator new` has to guarantee: __STDCPP_DEFAULT_NEW_ALIGNMENT__
+	// (16 on Apple arm64, where std::max_align_t is only 8; with an 8-byte header
+	// every block was 8 modulo 16).
+#ifdef __STDCPP_DEFAULT_NEW_ALIGNMENT__
+	constexpr std::size_t alignment = __STDCPP_DEFAULT_NEW_ALIGNMENT__ > alignof(std::max_align_t)
+		? static_cast<std::size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__)
+		: alignof(std::max_align_t);
+#else
 	constexpr std::size_t alignment = alignof(std::max_align_t);
+#endif
 
 	// allocate using ::malloc
 	static inline void* malloc(std::size_t __sz) {

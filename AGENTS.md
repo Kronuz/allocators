@@ -102,7 +102,9 @@ other local include. Only `<config.h>` had to go.
   size in the leading slot, and returns a pointer past it; `deallocate` steps back
   by the same `alignment`, reads the size, and frees the original pointer. If you
   change the header size or layout on one side, change both, or `delete` reads a
-  bogus size and corrupts the counters (or the heap).
+  bogus size and corrupts the counters (or the heap). The header is `alignment` bytes, the larger of `alignof(std::max_align_t)` and `__STDCPP_DEFAULT_NEW_ALIGNMENT__`
+  (8 and 16 on Apple arm64): a smaller header hands `operator new` callers blocks that are misaligned for any class,
+  and UBSan aborts. `test/test.cc` checks the alignment of every `operator new` form.
 - **The global `new`/`delete` override is all-or-nothing and tracking-gated.**
   When `XAPIAND_TRACKED_MEM` is on, *all* of the `operator new` / `operator
   new[]` / `nothrow` / `operator delete` / sized-`delete` forms must be defined
