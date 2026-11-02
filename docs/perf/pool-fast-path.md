@@ -6,7 +6,7 @@ one live block is faster (1.1 to 1.7 times). This note has the cause, the varian
 The change landed is the allocator-local head (see the last section): the i9 pair goes from 2.03 to 1.00 ns, the
 M4 Pro's from 1.23 to 0.66 ns, and no other row moves. The i9 is still 0.75 of START's speed
 ([Kronuz/allocators#1](https://github.com/Kronuz/allocators/issues/1)). A slot for the newest block
-(`perf/pool-newest-slot`, `allocators:b724644`) was tried first and not landed: each variant of it that fixes part
+(tag `archive/perf/pool-newest-slot`, `allocators:b724644`) was tried first and not landed: each variant of it that fixes part
 of the row makes the refill rows slower than START on the i9.
 
 ## The row
@@ -61,7 +61,7 @@ says the slot's block is free):
 
 | Variant | Free list |
 |---|---|
-| slot first (`perf/pool-newest-slot`) | `newest` holds the block freed last; `deallocate` links the old one onto the list and takes the new one; `allocate` takes `newest`, then the list |
+| slot first (tag `archive/perf/pool-newest-slot`) | `newest` holds the block freed last; `deallocate` links the old one onto the list and takes the new one; `allocate` takes `newest`, then the list |
 | slot, list first | `newest` holds the only free block, and the list is empty then; `allocate` takes the list, then the slot |
 | flag first | `newest` plus a flag: a free of the block just handed out stores nothing but the flag |
 | flag, list first | the flag variant with the list consulted first |
