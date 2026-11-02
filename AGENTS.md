@@ -17,7 +17,7 @@ test/construct.cc       construct/destroy forwarding: copy, move and destroy cou
 bench/bench.cc          vector push_back through std::allocator and allocators::allocator (target allocators_bench; --counts prints only the copy and move counts).
 bench/compare_pmr.cc    The pool against std::allocator and std::pmr resources on list builds, map churn and steady list churn (target allocators_compare_pmr, -DALLOCATORS_BUILD_BENCH=ON).
 bench/pool_bench.cc     The pool's allocate and deallocate called directly: steady one-block reuse, refill, fresh pools, random-order frees (target allocators_pool_bench; builds against any revision of allocators.h, for A/B with ab_compare.py).
-tools/pool_mutants.py   Breaks the pool's free-list push and pop six ways and requires test/pool.cc or test/propagation.cc to fail on each (not in CTest).
+tools/pool_mutants.py   Breaks the pool's free-list push and pop and the allocator's handoff of its kept blocks thirteen ways and requires test/pool.cc or test/propagation.cc to fail on each (not in CTest).
 docs/perf/construct-forwarding.md  Copy and move counts, timings and mutants of the construct forwarding.
 docs/perf/pool-fast-path.md  The one-block allocate and free pair against START: codegen, the variants tried, the measurements on three machines.
 test/test.cc            Runnable smoke test: detects tracking mode at runtime, checks the counters, the allocator over both backends, and the memory pool.
@@ -157,13 +157,18 @@ other local include. Only `<config.h>` had to go.
   target keeps its own allocator). A moved-from container keeps sharing with the
   container that took its nodes. Do not use two allocators of one family from two
   threads at once. `ALLOCATORS_POOL_CHECK` (on without `NDEBUG`) reports overlap.
-- **The pool's free list is LIFO.** `deallocate` pushes the block on `free_head`, `allocate` pops it before it
-  bumps, so the block freed last is the next one handed out through any allocator of the family; the tests use
-  that as the oracle for equality. `test/pool.cc` checks the order against a model over every short operation
-  string and `tools/pool_mutants.py` breaks each step. A free followed by an allocate of one block is two chained
-  store-to-load forwards on an Intel i9 (2.6 times START's time); `docs/perf/pool-fast-path.md` has what was
-  tried and why a slot for the newest block was not landed. Measure that row (`allocators_pool_bench`) on x86
-  before changing these two functions.
+- **The pool's free list is LIFO, and an allocator alone in its family keeps its own blocks.** `deallocate` pushes
+  the block on `free_head`, `allocate` pops it before it bumps, so the block freed last is the next one handed out
+  through any allocator of the family; the tests use that as the oracle for equality. An allocator that is the only
+  handle of its family (`alone`) keeps the blocks it frees in `local` and takes them first; every way a second handle
+  appears (copy, rebind, copy assignment, move) must call `leave_alone()` on the source before the copy exists, which
+  splices `local` in front of the free list in order, and `leave_alone()` only reads an allocator that is not alone, so
+  copying a const container from two threads stays free of races. `test/pool.cc` checks all of it against a model
+  with a copy made at every position, and `tools/pool_mutants.py` breaks each step. Without `local`, a free followed
+  by an allocate of one block is two chained store-to-load forwards on an Intel i9 (2.6 times START's time);
+  `docs/perf/pool-fast-path.md` has the assembly and what was tried. Measure `allocators_pool_bench` on x86 before
+  changing `allocate`, `deallocate` or the order of their stores (writing the head before the link keeps the
+  compiler from merging the push with the pool's, which made `local` addressable).
 - **The pool only allocates one element.** `allocate(n)` throws for `n != 1`. It
   is for node-based containers (`std::list`, `std::map`), not `std::vector`.
 
