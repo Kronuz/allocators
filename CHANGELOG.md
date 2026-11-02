@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 2026-11-01
 
+### Known performance regression
+
+- `memory_pool_allocator<T>::allocate(1)` then `deallocate` of one block, over and over, is slower than at START
+  (`e8fb173`, before the pool was shared) on an Intel i9-9980HK: 2.04 ns per operation against 0.83 ns
+  (0.39 of START's speed; Apple clang 17.0.0, 7 interleaved rounds with an A/A copy). On an Apple M4 Pro the
+  median over nine pool placements is at START's (1.30 ns against 1.27), and on an Apple M1 Pro the pair is 0.59
+  of START's speed. The pool lives in heap memory now, so the free-list head is reloaded after the caller's
+  store and the next allocate waits on two chained store-to-load forwards where START's waited on one. Every
+  row with more than one live block is faster than at START (refills 1.2 to 1.8 times, fresh pools 1.3 to 1.7,
+  random-order frees 1.1), and `compare_pmr` is unchanged. A slot for the newest freed block brings the i9 pair to
+  1.21 ns and the M1 Pro pair to 1.96 times START's speed, but makes the refill rows of 1,000 and 100,000
+  blocks 26 to 31 percent slower on the i9 (0.98 and 0.94 of START, from 1.27 and 1.19), so it is not landed.
+  [docs/perf/pool-fast-path.md](docs/perf/pool-fast-path.md) has the assembly, four variants on three machines and
+  the next step (the allocator keeps the list head while its family has one handle); the prototype is on
+  `perf/pool-newest-slot`.
+
 ### Documentation
 
 - The README's pool section says what a moved-from container may do: it keeps the
@@ -21,6 +37,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   container's pool, that it can `splice` or `merge` into the container that took
   its nodes and keep churning, and that a copy, a copy-assigned container and
   its source have unequal allocators.
+- `test/pool.cc` checks the pool's free list against a model: every operation string of up to seven steps over
+  allocate, free-oldest and free-newest, through two allocators of one family, and 400,000 random steps over two
+  block sizes, require the block freed last to be the next one handed out and no block to be lost, served twice or
+  overlapped. `tools/pool_mutants.py` breaks the push and pop six ways; each is caught by `test/pool.cc`.
 
 ### Added
 
@@ -32,6 +52,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `pmr::unsynchronized_pool_resource` is 0.20 to 0.50 on lists and 0.65 to 0.99 on map churn.
 - `docs/perf/construct-forwarding.md`: the method, counts, timings and mutants
   of the `construct` forwarding below.
+- `bench/pool_bench.cc` (`allocators_pool_bench`): `allocate(1)` and `deallocate` called directly: steady one-block
+  reuse (on one pool and as the median of nine placements), refills of 2, 1,000 and 100,000 blocks, fresh pools,
+  random-order frees, with `std::allocator` as the control. It builds against any revision of `allocators.h`, so
+  `ab_compare.py` can compare revisions.
+- `docs/perf/pool-fast-path.md` and `tools/pool_mutants.py`: the one-block pair analysis above, and the six
+  mutants of the pool's push and pop.
 
 ## 2026-10-31
 

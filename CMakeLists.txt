@@ -111,6 +111,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   # Benchmark, not a test: vector push_back through std::allocator and the library's allocator.
   add_executable(allocators_bench bench/bench.cc)
   target_link_libraries(allocators_bench PRIVATE allocators)
+  # Benchmark, not a test: the pool's allocate and deallocate called directly (steady one-block
+  # reuse, refill, fresh pools, random-order frees), one "row value ns" line per row.
+  add_executable(allocators_pool_bench bench/pool_bench.cc)
+  target_link_libraries(allocators_pool_bench PRIVATE allocators)
 
   # The pool against std::pmr resources (std::allocator, unsynchronized_pool_resource,
   # monotonic_buffer_resource). Standard library only; not built by default.
