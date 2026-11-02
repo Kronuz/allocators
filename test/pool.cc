@@ -10,6 +10,7 @@
 //
 // Build with -DALLOCATORS_POOL_CHECK=1 so the overlap detector is on whatever the
 // build type is (the CMake target does).
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -280,11 +281,102 @@ static void test_overlap_detection() {
 #endif
 }
 
+// The free list is exactly LIFO per size class, whichever allocator of the family frees or allocates:
+// the model is a stack of freed blocks per block size (an allocate takes the newest, and only when
+// that stack is empty does it hand out a block no one has seen). Exhaustive over every operation
+// string of a small alphabet, then a long random run mixing two sizes. This pins the free-list fast
+// path (the most recent free is served first, a block is never lost or served twice).
+namespace model {
+	struct Op { int kind; int pick; };   // kind 0 = allocate, 1 = free the pick'th live block
+
+	template <typename T, typename Alloc>
+	struct Run {
+		std::vector<void*> live;
+		std::vector<void*> freed;
+		std::set<void*> seen;
+
+		void allocate(Alloc& a) {
+			T* p = std::allocator_traits<Alloc>::allocate(a, 1);
+			if (!freed.empty()) {
+				CHECK(p == freed.back());   // LIFO: the newest freed block comes first
+				freed.pop_back();
+			} else {
+				CHECK(seen.insert(p).second);   // otherwise a block never handed out before
+				CHECK(reinterpret_cast<std::uintptr_t>(p) % alignof(std::max_align_t) == 0);
+			}
+			CHECK(std::find(live.begin(), live.end(), p) == live.end());
+			live.push_back(p);
+		}
+
+		void release(Alloc& a, int pick) {
+			if (live.empty()) return;
+			std::size_t i = static_cast<std::size_t>(pick) % live.size();
+			void* p = live[i];
+			live.erase(live.begin() + static_cast<std::ptrdiff_t>(i));
+			freed.push_back(p);
+			std::allocator_traits<Alloc>::deallocate(a, static_cast<T*>(p), 1);
+		}
+	};
+}
+
+static void test_free_list_is_lifo() {
+	using Small = memory_pool_allocator<long>;
+	// Alphabet: allocate, free the oldest live block or free the newest, each through the original
+	// or through a copy (a copy of the family handle with its own size-class cache).
+	const int alphabet = 6;
+	long sequences = 0;
+	for (int length = 1; length <= 7; ++length) {
+		long total = 1;
+		for (int i = 0; i < length; ++i) total *= alphabet;
+		for (long code = 0; code < total; ++code) {
+			Small first;
+			Small second(first);
+			Small* via[2] = {&first, &second};
+			model::Run<long, Small> run;
+			long c = code;
+			for (int i = 0; i < length; ++i, c /= alphabet) {
+				int symbol = static_cast<int>(c % alphabet);
+				Small& a = *via[symbol & 1];
+				int op = symbol >> 1;   // 0 allocate, 1 free the oldest, 2 free the newest
+				if (op == 0) run.allocate(a);
+				else run.release(a, op == 1 ? 0 : static_cast<int>(run.live.size()) - 1);
+			}
+			++sequences;
+		}
+	}
+
+	// Long random run: two block sizes of one family, three allocators (one a rebind of the other
+	// size), against one model per size. Each size recycles only its own blocks.
+	using Wide = memory_pool_allocator<Big>;
+	Small s;
+	Wide w(s);
+	Small s2(w);
+	model::Run<long, Small> small_run;
+	model::Run<Big, Wide> wide_run;
+	std::uint64_t state = 0x9E3779B97F4A7C15ull;
+	auto next = [&] { state ^= state << 13; state ^= state >> 7; state ^= state << 17; return state; };
+	for (int step = 0; step < 400000; ++step) {
+		std::uint64_t r = next();
+		int pick = static_cast<int>((r >> 8) & 0xFFFF);
+		bool grow = small_run.live.size() + wide_run.live.size() < 200 ? (r & 7) < 5 : (r & 7) < 3;   // random walk, bounded
+		switch ((r >> 4) & 3) {
+			case 0: if (grow) small_run.allocate(s); else small_run.release(s2, pick); break;
+			case 1: if (grow) wide_run.allocate(w); else wide_run.release(w, pick); break;
+			case 2: small_run.release(s, pick); break;
+			default: wide_run.release(w, pick); break;
+		}
+	}
+	for (void* p : small_run.live) s.deallocate(static_cast<long*>(p), 1);
+	for (void* p : wide_run.live) w.deallocate(static_cast<Big*>(p), 1);
+	std::printf("pool OK: LIFO free list matches the model (%ld exhaustive sequences, 400000 random steps)\n", sequences);
+}
+
 int main() {
 	test_rebind_identity();
 	test_conversion_does_not_allocate();
 	test_sizes_share_family();
 	test_equality_matrix();
+	test_free_list_is_lifo();
 	test_container_propagation();
 	test_cross_thread();
 	test_overlap_detection();

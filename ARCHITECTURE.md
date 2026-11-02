@@ -112,11 +112,19 @@ from it: the target allocates the copied elements from its own pool. A move copi
 allocator (the Allocator requirements say the source's allocator is unchanged), so a
 moved-from container still shares the family with the container that took its nodes.
 
-`allocate(1)` pops the free list, else bumps the current chunk, else adds a chunk. It
-refuses any request other than exactly one element (`n != 1` throws `bad_alloc`),
-because it is built for node-based containers. `deallocate` pushes the block on the free
+`allocate(1)` hands out the block freed last, else pops the free list, else bumps the
+current chunk, else adds a chunk (out of line). It refuses any request other than exactly
+one element (`n != 1` throws `bad_alloc`), because it is built for node-based containers.
+`deallocate` makes the block the new "newest" and links the one it replaces onto the free
 list. The free list is LIFO, so the most recently freed block is the next one handed
 out, good for cache locality in the node churn of a `std::list` or tree.
+
+The newest block lives in its own slot beside the list head, not on the list. The pool is
+shared, so its head sits in heap memory the compiler cannot keep in a register; a list
+that takes every free would make each allocate wait on the stores the previous free made
+to the head and to the block's link. With the slot, an allocate that follows a free reads
+and clears one pointer and a free that follows an allocate writes it, and the list is
+touched only when several blocks are free at once.
 
 **Thread safety.** A pool is not thread-safe. All allocators of one family must be used
 by one thread at a time, with a happens-before edge at each hand-over. Copying a
