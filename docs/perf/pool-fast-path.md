@@ -3,9 +3,11 @@
 `memory_pool_allocator<T>::allocate(1)` followed by `deallocate` of the same block, over and over, is slower
 than at START (`allocators:e8fb173`) on an Intel i9-9980HK: 2.04 ns against 0.83 ns. Every row with more than
 one live block is faster (1.1 to 1.7 times). This note has the cause, the variants tried and the numbers.
-No change to the pool is landed: each variant that fixes part of the row makes the refill rows slower than START
-on the i9. The prototype that came closest is `perf/pool-newest-slot` (`allocators:b724644`); the open item is
-[Kronuz/allocators#1](https://github.com/Kronuz/allocators/issues/1).
+The change landed is the allocator-local head (see the last section): the i9 pair goes from 2.03 to 1.00 ns, the
+M4 Pro's from 1.23 to 0.66 ns, and no other row moves. The i9 is still 0.75 of START's speed
+([Kronuz/allocators#1](https://github.com/Kronuz/allocators/issues/1)). A slot for the newest block
+(`perf/pool-newest-slot`, `allocators:b724644`) was tried first and not landed: each variant of it that fixes part
+of the row makes the refill rows slower than START on the i9.
 
 ## The row
 
@@ -110,7 +112,7 @@ the slot's `allocate` with HEAD's `deallocate` is as fast as HEAD, so the cost i
 pair stays 0.64 to 0.69 of START's speed even then: START's loop has the link as its only loop-carried memory,
 and a pool shared by copies cannot keep its head in a register.
 
-## Allocator-local head (`perf/pool-local-head`)
+## Allocator-local head (landed)
 
 The next step, built: while an allocator is the only handle of its family it keeps the blocks it frees in
 the allocator itself (`local`, newest first), and `allocate` takes from it before it asks the pool; the first copy,
@@ -138,8 +140,7 @@ operation, ratio START/variant in parentheses:
 
 `compare_pmr` against HEAD: 0.97 to 1.11 on the i9 (geomean 1.03) and 0.996 to 1.03 on the M4 Pro. On the M4 Pro
 every row is at HEAD's within the spread and the one-block pair is 1.8 times START's speed. On the i9 the pair
-is twice as fast as HEAD and still 0.75 to 0.78 of START's speed, so it is not landed (the bar is START). What is
-left is store throughput: Apple clang 17's loop has four stores per iteration (the sink, the block's link, and two
+is twice as fast as HEAD and still 0.75 to 0.78 of START's speed. What is left is store throughput: Apple clang 17's loop has four stores per iteration (the sink, the block's link, and two
 writes of `local` to its stack slot, which it keeps because the allocator's address escapes on the cold paths),
 START's has three, and the i9 retires one store per cycle (1.0 ns against 0.74). Merging the two writes of `local`
 (the compiler does not, across the volatile store and the `alone` test) is the next thing to try.
@@ -154,6 +155,6 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target alloca
 To compare revisions build `bench/pool_bench.cc` once per tree (it uses only `allocate` and `deallocate`), with
 `c++ -std=c++20 -O3 -DNDEBUG -pthread -I <tree> bench/pool_bench.cc`, and run the binaries interleaved with an A/A
 copy through `cpp-libraries/tools/ab_compare.py` (`--format unit`). `test/pool.cc` pins the LIFO order against a
-model (every operation string of up to seven steps over allocate, free-oldest and free-newest, through two
-allocators of one family, then 400,000 random steps over two block sizes), and `tools/pool_mutants.py` breaks the
-push and pop six ways and requires that test to fail on each.
+model (every operation string of up to six steps over allocate, free-oldest, free-newest and a copy of the
+allocator, then 400,000 random steps over two block sizes), and `tools/pool_mutants.py` breaks the
+push and pop and the handoff thirteen ways and requires that test to fail on each.

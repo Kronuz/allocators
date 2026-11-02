@@ -21,33 +21,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   suite passes under ASan and UBSan there. The untracked build is the system's: its `operator new` is not checked
   (FreeBSD's hands out 8-aligned blocks for tiny sizes).
 
-### Known performance regression
+### Performance
 
-- `memory_pool_allocator<T>::allocate(1)` then `deallocate` of one block, over and over, is slower than at START
-  (`e8fb173`, before the pool was shared) on an Intel i9-9980HK: 2.04 ns per operation against 0.83 ns
-  (0.39 of START's speed; Apple clang 17.0.0, 7 interleaved rounds with an A/A copy). On an Apple M4 Pro the
-  median over nine pool placements is at START's (1.30 ns against 1.27), and on an Apple M1 Pro the pair is 0.59
-  of START's speed. The pool lives in heap memory now, so the free-list head is reloaded after the caller's
-  store and the next allocate waits on two chained store-to-load forwards where START's waited on one. Every
-  row with more than one live block is faster than at START (refills 1.2 to 1.8 times, fresh pools 1.3 to 1.7,
-  random-order frees 1.1), and `compare_pmr` is unchanged. A slot for the newest freed block brings the i9 pair to
-  1.21 ns and the M1 Pro pair to 1.96 times START's speed, but makes the refill rows of 1,000 and 100,000
-  blocks 26 to 31 percent slower on the i9 (0.98 and 0.94 of START, from 1.27 and 1.19), so it is not landed.
-  [docs/perf/pool-fast-path.md](docs/perf/pool-fast-path.md) has the assembly, four variants on three machines and
-  the next step (the allocator keeps the list head while its family has one handle); the prototype is on
-  `perf/pool-newest-slot`; the open item is [#1](https://github.com/Kronuz/allocators/issues/1). An allocator that
-  keeps its freed blocks while it is the only handle of its family (`perf/pool-local-head`, with its tests and
-  mutants) takes the i9 pair from 2.03 to 1.00 ns (START 0.74) and the M4 Pro's from 1.23 to 0.66 ns (START 1.16),
-  and leaves every other row at HEAD's, but it is not landed: the i9 pair is 0.75 to 0.78 of START's speed.
-
-### Documentation
-
-- The README's pool section says what a moved-from container may do: it keeps the
-  pool it shares with the container that took its nodes, so it must be given a
-  pool of its own (move-assign a fresh container, or swap) before another
-  thread uses either, and `a = {}` and `clear()` do not do that. It also says
-  that containers with separate pools, such as a copy-assigned pair, compare
-  unequal, so `splice` and `merge` between them are not allowed.
+- `memory_pool_allocator<T>`: an allocator that is the only handle of its family keeps the blocks it frees
+  (`local`, newest first) and `allocate` takes them before it asks the pool; the first copy, rebind, copy
+  assignment or move splices them in front of the family's free list in order, so the block freed last is still the
+  next one handed out by any equal allocator, and a container's allocator, always a copy, takes the old path plus a
+  load and a branch. It closes most of a regression that the shared pool had left: `allocate(1)` then `deallocate`
+  of one block, over and over, took 2.03 ns on an Intel i9-9980HK against 0.74 ns at START (`e8fb173`, before the pool
+  was shared), 0.37 of START's speed, because the free-list head moved to heap memory, the compiler reloads it after
+  the caller's store and the next allocate waits on two chained store-to-load forwards where START's waited on one.
+  Now it takes 1.00 ns on the i9 (0.75 of START's speed; the gap left is a fourth store per iteration, Apple clang
+  keeps two writes of `local` where START's loop has one) and 0.66 ns on an Apple M4 Pro against START's 1.16 (1.8
+  times faster; HEAD's was at START's median). Every other `pool_bench` row and `compare_pmr` stay at their previous
+  values within the spread on both machines (Apple clang 17.0.0, interleaved rounds with an A/A copy, one
+  `quiet strict` hold per machine), and every row with more than one live block is at or above START's. A slot for the
+  newest freed block was tried first and not landed: it makes the i9's refill rows slower than START's.
+  [docs/perf/pool-fast-path.md](docs/perf/pool-fast-path.md) has the assembly, the variants and the tables; the
+  remaining gap is [#1](https://github.com/Kronuz/allocators/issues/1).
 
 ### Tests
 
@@ -56,10 +47,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   container's pool, that it can `splice` or `merge` into the container that took
   its nodes and keep churning, and that a copy, a copy-assigned container and
   its source have unequal allocators.
-- `test/pool.cc` checks the pool's free list against a model: every operation string of up to seven steps over
-  allocate, free-oldest and free-newest, through two allocators of one family, and 400,000 random steps over two
+- `test/pool.cc` checks the pool's free list against a model: every operation string of up to six steps over
+  allocate, free-oldest, free-newest and a copy of the allocator (made once, anywhere in the string), through
+  the original and the copy, and 400,000 random steps over two
   block sizes, require the block freed last to be the next one handed out and no block to be lost, served twice or
-  overlapped. `tools/pool_mutants.py` breaks the push and pop six ways; each is caught by `test/pool.cc`.
+  overlapped. `tools/pool_mutants.py` breaks the push and pop and the handoff thirteen ways; each is caught by `test/pool.cc`.
 
 ### Added
 

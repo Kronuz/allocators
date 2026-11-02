@@ -118,6 +118,13 @@ because it is built for node-based containers. `deallocate` pushes the block on 
 list. The free list is LIFO, so the most recently freed block is the next one handed
 out, good for cache locality in the node churn of a `std::list` or tree.
 
+**An allocator alone in its family keeps its freed blocks.** While an allocator is the only handle of its family
+it keeps the blocks it frees in a list of its own (`local`, newest first) and takes them first, so the pool's shared
+free list, which sits in heap memory the compiler cannot keep in a register, is not touched by a loop that frees and
+allocates one block. The first copy, rebind, copy assignment or move splices the list in front of the family's free
+list, in order, before the second handle exists: the block freed last stays the next one handed out by any equal
+allocator. A container's allocator is a copy, so containers never use `local`.
+
 **Thread safety.** A pool is not thread-safe. All allocators of one family must be used
 by one thread at a time, with a happens-before edge at each hand-over. Copying a
 *container* across threads is safe (the copy has its own pool); copying an *allocator*,
