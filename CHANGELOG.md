@@ -15,10 +15,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   unchanged since), so the blocks were misaligned there too: a new-expression of a 16-aligned type aborts under UBSan with START's
   `allocators.cc`; START's own test constructed no such object; since `085331c` the pool's size classes are made with
   `std::make_unique`, and the tracked test reaches one. The header is now the larger of the two alignments.
-  `test/test.cc` (`allocators` and `allocators_tracked`) checks that every form of `operator new`, both backends and a
+  `allocators_tracked` (`test/test.cc`) checks that every form of `operator new`, `tracked_allocator::allocate` and a
   new-expression of a type aligned to the default new alignment return blocks aligned to it: it fails on the M1 Pro with
-  the old header (`CHECK failed: default_aligned(...)`, and the UBSan report) and passes with the new one, in the tracked
-  and the untracked build, and the suite passes under ASan and UBSan there.
+  the old header (`CHECK failed: default_aligned(...)`, and the UBSan report) and passes with the new one, and the
+  suite passes under ASan and UBSan there. The untracked build is the system's: its `operator new` is not checked
+  (FreeBSD's hands out 8-aligned blocks for tiny sizes).
 
 ### Known performance regression
 

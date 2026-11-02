@@ -211,7 +211,7 @@ static void test_memory_pool_containers() {
 
 
 // ---------------------------------------------------------------------------
-// Every form of the global operator new, tracked or not, and the backends' allocate
+// In a tracked build every form of the global operator new, and tracked_allocator::allocate,
 // return memory aligned to __STDCPP_DEFAULT_NEW_ALIGNMENT__. The tracked build puts a
 // size header in front of each block; with a header smaller than that alignment
 // (8 bytes on Apple arm64, where std::max_align_t is 8 and the default new alignment
@@ -232,22 +232,26 @@ static bool default_aligned(const void* p) {
 	return reinterpret_cast<std::uintptr_t>(p) % default_new_alignment == 0;
 }
 
-static void test_new_alignment() {
+static void test_new_alignment(bool tracked) {
+	if (!tracked) {
+		// Nothing here is the library's: the system's operator new and malloc decide (jemalloc on FreeBSD hands out
+		// 8-aligned blocks for tiny sizes).
+		std::printf("allocators new alignment skipped: untracked build, the system allocator's alignment is not checked\n");
+		return;
+	}
 	for (std::size_t n : {1, 2, 7, 8, 9, 15, 16, 17, 24, 48, 56, 64, 100, 4096}) {
 		void* a = ::operator new(n);
 		void* b = ::operator new[](n);
 		void* c = ::operator new(n, std::nothrow);
 		void* d = ::operator new[](n, std::nothrow);
 		void* e = allocators::tracked_allocator::allocate(n);
-		void* f = allocators::vanilla_allocator::allocate(n);
 		CHECK(default_aligned(a) && default_aligned(b) && default_aligned(c) && default_aligned(d));
-		CHECK(default_aligned(e) && default_aligned(f));
+		CHECK(default_aligned(e));
 		::operator delete(a);
 		::operator delete[](b);
 		::operator delete(c);
 		::operator delete[](d);
 		allocators::tracked_allocator::deallocate(e);
-		allocators::vanilla_allocator::deallocate(f);
 	}
 	NewAligned* one = new NewAligned;
 	CHECK(default_aligned(one));
@@ -260,7 +264,7 @@ static void test_new_alignment() {
 	allocators::memory_pool_allocator<long> pool;
 	long* block = pool.allocate(1);
 	pool.deallocate(block, 1);
-	std::printf("allocators new alignment OK: every operator new form and both backends return %zu-byte aligned blocks\n", default_new_alignment);
+	std::printf("allocators new alignment OK: every operator new form and tracked_allocator return %zu-byte aligned blocks\n", default_new_alignment);
 }
 
 
@@ -276,7 +280,7 @@ int main() {
 	exercise_vector<allocators::tracked_allocator>("tracked_allocator");
 	test_memory_pool();
 	test_memory_pool_containers();
-	test_new_alignment();
+	test_new_alignment(tracked);
 
 	std::printf("all allocators tests passed\n");
 	return 0;
