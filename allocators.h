@@ -158,6 +158,8 @@ namespace allocators {
 		// reach the family lives.
 		class pool_class {
 		public:
+			struct free_node { free_node* next; };
+
 			explicit pool_class(std::size_t block) : block_size(block) {}
 			pool_class(const pool_class&) = delete;
 			pool_class& operator=(const pool_class&) = delete;
@@ -191,6 +193,18 @@ namespace allocators {
 				free_head = block;
 			}
 
+			// Puts a nullptr-terminated list of free blocks in front of the free list, in order: the
+			// first of `top` is the next block handed out.
+			void adopt(free_node* top) noexcept {
+				check_guard guard(*this);
+				free_node* last = top;
+				while (last->next) {
+					last = last->next;
+				}
+				last->next = free_head;
+				free_head = top;
+			}
+
 #ifdef ALLOCATORS_POOL_CHECK
 			// Marks the class in use for the guard's lifetime; a second user while it is
 			// held is a thread-safety violation (see memory_pool_allocator).
@@ -208,8 +222,6 @@ namespace allocators {
 #endif
 
 		private:
-			struct free_node { free_node* next; };
-
 			struct check_guard {
 #ifdef ALLOCATORS_POOL_CHECK
 				pool_class& owner;
@@ -354,6 +366,28 @@ namespace allocators {
 		// This allocator's size class, found on first use (copies of the family handle
 		// that never allocate do not pay for the lookup).
 		detail::pool_class* size_class = nullptr;
+		// While this allocator is the only handle of its family (`alone`), the blocks it frees stay in
+		// `local`, newest first, and the pool does not see them: the free list's head is then a member of
+		// a local allocator, which the compiler can keep in a register, as when the pool lived in the
+		// allocator value. The first copy or rebind hands them to the family (leave_alone), in order, so
+		// the block freed last is still the next one handed out by any equal allocator.
+		using free_node = detail::pool_class::free_node;
+		mutable free_node* local = nullptr;
+		mutable bool alone = true;
+
+		// A second handle of the family is about to exist (this one is const: it is the source of a copy).
+		// An allocator that is not alone is only read here, so copying a const container from two threads
+		// stays free of data races (a container's node allocator is never alone).
+		void leave_alone() const noexcept {
+			if (!alone) {
+				return;
+			}
+			if (local) {
+				size_class->adopt(local);
+				local = nullptr;
+			}
+			alone = false;
+		}
 
 		detail::pool_class& pool() {
 			if (!size_class) {
@@ -366,12 +400,25 @@ namespace allocators {
 		// A new allocator starts a new pool family.
 		memory_pool_allocator() = default;
 		// A copy shares the family; a move copies too, so the source stays usable.
-		memory_pool_allocator(const memory_pool_allocator&) noexcept = default;
-		memory_pool_allocator& operator=(const memory_pool_allocator&) noexcept = default;
+		memory_pool_allocator(const memory_pool_allocator& other) noexcept : family(other.family), size_class(other.size_class), alone(false) {
+			other.leave_alone();
+		}
+		memory_pool_allocator& operator=(const memory_pool_allocator& other) noexcept {
+			if (this != &other) {
+				other.leave_alone();
+				family = other.family;   // the family this one led (if it was alone) goes, with its blocks
+				size_class = other.size_class;
+				local = nullptr;
+				alone = false;
+			}
+			return *this;
+		}
 		// A rebound allocator serves another block size from the same family. It only
 		// shares the handle: no allocation, no throw, and rebinding back is the identity.
 		template <typename _Tp1>
-		memory_pool_allocator(const memory_pool_allocator<_Tp1>& other) noexcept : family(other.family) { }
+		memory_pool_allocator(const memory_pool_allocator<_Tp1>& other) noexcept : family(other.family), alone(false) {
+			other.leave_alone();
+		}
 
 		// rebind allocator to type _Tp1
 		template <typename _Tp1>
@@ -389,11 +436,24 @@ namespace allocators {
 			if (__n != 1 || __hint) {
 				throw std::bad_alloc();
 			}
+			if (free_node* block = local) {
+				local = block->next;
+				return reinterpret_cast<pointer>(block);
+			}
 			return static_cast<pointer>(pool().allocate());
 		}
 
 		// deallocate storage __p of deleted elements
 		void deallocate(pointer __p, size_type) {
+			if (alone) {
+				// (The head moves before the link is written, so the compiler cannot merge this push with the pool's,
+				// which would make `local` addressable and keep it in memory.)
+				auto* block = reinterpret_cast<free_node*>(__p);
+				free_node* below = local;
+				local = block;
+				block->next = below;
+				return;
+			}
 			pool().deallocate(__p);
 		}
 
