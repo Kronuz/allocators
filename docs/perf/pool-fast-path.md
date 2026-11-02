@@ -4,7 +4,8 @@
 than at START (`allocators:e8fb173`) on an Intel i9-9980HK: 2.04 ns against 0.83 ns. Every row with more than
 one live block is faster (1.1 to 1.7 times). This note has the cause, the variants tried and the numbers.
 No change to the pool is landed: each variant that fixes part of the row makes the refill rows slower than START
-on the i9. The prototype that came closest is `perf/pool-newest-slot` (`allocators:b724644`).
+on the i9. The prototype that came closest is `perf/pool-newest-slot` (`allocators:b724644`); the open item is
+[Kronuz/allocators#1](https://github.com/Kronuz/allocators/issues/1).
 
 ## The row
 
@@ -47,8 +48,9 @@ reload; its arm64 output stores the loaded link back without one, and the pair i
 an Apple M1 Pro. The Apple M4 Pro forwards a fixed address in one add (0.25 ns) and its HEAD pair is at START's
 median.
 
-Not the cause: a branch added to `deallocate` that does the same on both arms compiles to HEAD's code, and
-marking `grow` and the size-class lookup cold changes nothing measurable.
+Not the cause: a branch added to `deallocate` that does the same on both arms runs at HEAD's speed (the compiler
+may fold the arms, so this says little about branches), and marking `grow` and the size-class lookup cold changes
+nothing measurable on the VM it was tried on.
 
 ## Variants
 

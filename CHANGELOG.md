@@ -19,7 +19,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   blocks 26 to 31 percent slower on the i9 (0.98 and 0.94 of START, from 1.27 and 1.19), so it is not landed.
   [docs/perf/pool-fast-path.md](docs/perf/pool-fast-path.md) has the assembly, four variants on three machines and
   the next step (the allocator keeps the list head while its family has one handle); the prototype is on
-  `perf/pool-newest-slot`.
+  `perf/pool-newest-slot`; the open item is [#1](https://github.com/Kronuz/allocators/issues/1).
 
 ### Documentation
 
