@@ -321,24 +321,25 @@ namespace model {
 
 static void test_free_list_is_lifo() {
 	using Small = memory_pool_allocator<long>;
-	// Alphabet: allocate, free the oldest live block or free the newest, each through the original
-	// or through a copy (a copy of the family handle with its own size-class cache).
-	const int alphabet = 6;
+	// Alphabet: allocate, free the oldest live block, free the newest, or make a copy of the allocator
+	// (once), each through the original or through the copy. The copy hands the original's freed blocks
+	// over to the family wherever in the sequence it is made.
+	const int alphabet = 8;
 	long sequences = 0;
-	for (int length = 1; length <= 7; ++length) {
+	for (int length = 1; length <= 6; ++length) {
 		long total = 1;
 		for (int i = 0; i < length; ++i) total *= alphabet;
 		for (long code = 0; code < total; ++code) {
 			Small first;
-			Small second(first);
-			Small* via[2] = {&first, &second};
+			std::unique_ptr<Small> second;
 			model::Run<long, Small> run;
 			long c = code;
 			for (int i = 0; i < length; ++i, c /= alphabet) {
 				int symbol = static_cast<int>(c % alphabet);
-				Small& a = *via[symbol & 1];
-				int op = symbol >> 1;   // 0 allocate, 1 free the oldest, 2 free the newest
+				Small& a = (symbol & 1) && second ? *second : first;
+				int op = symbol >> 1;   // 0 allocate, 1 free the oldest, 2 free the newest, 3 copy
 				if (op == 0) run.allocate(a);
+				else if (op == 3) { if (!second) second = std::make_unique<Small>(first); }
 				else run.release(a, op == 1 ? 0 : static_cast<int>(run.live.size()) - 1);
 			}
 			++sequences;
@@ -371,12 +372,78 @@ static void test_free_list_is_lifo() {
 	std::printf("pool OK: LIFO free list matches the model (%ld exhaustive sequences, 400000 random steps)\n", sequences);
 }
 
+// An allocator that is the only handle of its family keeps the blocks it frees to itself; every way a second
+// handle appears (copy, rebind, copy assignment, move) hands them to the family in order, so the block freed last
+// is the next one handed out by any equal allocator, and by the original.
+static void test_alone_handoff() {
+	using A = memory_pool_allocator<long>;
+	using Wide = memory_pool_allocator<Big>;
+	auto take = [](A& a, int n) { std::vector<long*> v; for (int i = 0; i < n; ++i) v.push_back(a.allocate(1)); return v; };
+
+	{   // alone: LIFO through the one handle
+		A a;
+		auto v = take(a, 3);
+		a.deallocate(v[0], 1); a.deallocate(v[1], 1); a.deallocate(v[2], 1);
+		CHECK(a.allocate(1) == v[2] && a.allocate(1) == v[1] && a.allocate(1) == v[0]);
+	}
+	{   // copy: the copy sees what the original freed, newest first, and the original sees what the copy frees
+		A a;
+		auto v = take(a, 3);
+		a.deallocate(v[0], 1); a.deallocate(v[1], 1);
+		A b(a);
+		CHECK(b.allocate(1) == v[1]);
+		b.deallocate(v[2], 1);
+		CHECK(a.allocate(1) == v[2] && a.allocate(1) == v[0]);
+	}
+	{   // rebind: the original keeps allocating its blocks in order, the rebound one has its own size class
+		A a;
+		auto v = take(a, 2);
+		a.deallocate(v[0], 1); a.deallocate(v[1], 1);
+		Wide w(a);
+		Big* big = w.allocate(1);
+		A back(w);
+		CHECK(back.allocate(1) == v[1] && a.allocate(1) == v[0]);
+		w.deallocate(big, 1);
+		CHECK(w.allocate(1) == big);
+	}
+	{   // copy assignment: the target leaves its own family (blocks and all) for the source's, which the source hands over
+		A a, target;
+		auto v = take(a, 2);
+		auto t = take(target, 2);
+		a.deallocate(v[0], 1); a.deallocate(v[1], 1);
+		target.deallocate(t[0], 1);
+		target = a;
+		CHECK(target == a);
+		CHECK(target.allocate(1) == v[1] && a.allocate(1) == v[0]);
+	}
+	{   // move construction copies: the source stays usable and equal
+		A a;
+		auto v = take(a, 2);
+		a.deallocate(v[0], 1); a.deallocate(v[1], 1);
+		A moved(std::move(a));
+		CHECK(moved == a);
+		CHECK(moved.allocate(1) == v[1] && a.allocate(1) == v[0]);
+	}
+	{   // blocks freed alone then handed over are not lost to a second copy either
+		A a;
+		auto v = take(a, 4);
+		for (long* p : v) a.deallocate(p, 1);
+		A b(a);
+		A c(b);
+		std::vector<long*> got;
+		for (int i = 0; i < 4; ++i) got.push_back(i % 2 ? c.allocate(1) : a.allocate(1));
+		CHECK(got[0] == v[3] && got[1] == v[2] && got[2] == v[1] && got[3] == v[0]);
+	}
+	std::printf("pool OK: an allocator alone in its family keeps its freed blocks; copy, rebind, assignment and move hand them over in order\n");
+}
+
 int main() {
 	test_rebind_identity();
 	test_conversion_does_not_allocate();
 	test_sizes_share_family();
 	test_equality_matrix();
 	test_free_list_is_lifo();
+	test_alone_handoff();
 	test_container_propagation();
 	test_cross_thread();
 	test_overlap_detection();

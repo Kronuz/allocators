@@ -3,7 +3,7 @@
 
 usage: tools/pool_mutants.py [REPO_DIR [COMPILER_FLAGS...]]
 
-Breaks the fast path six ways in a private copy of allocators.h, builds test/pool.cc and
+Breaks the pool's free list and the handoff of the blocks an allocator keeps while it is alone, thirteen ways in a private copy of allocators.h, builds test/pool.cc and
 test/propagation.cc against each copy and requires one of them to fail (a non-zero exit or a
 hang past 60 seconds). Exits 1 if a mutant survives or a build fails. CXX picks the compiler
 (default clang++); the default flags build with ASan and UBSan, which turn a double handout or a
@@ -43,6 +43,14 @@ mutants = {
 					block->next = nullptr;
 				}
 """),
+    # the allocator that keeps its freed blocks while it is the only handle of its family, and the handoff
+    "leave_alone drops the blocks": ("				size_class->adopt(local);\n", ""),
+    "leave_alone leaves the allocator alone": ("				local = nullptr;\n			}\n			alone = false;\n", "				local = nullptr;\n			}\n"),
+    "the copy constructor does not hand off": ("alone(false) {\n			other.leave_alone();\n		}\n		memory_pool_allocator& operator=", "alone(false) {\n		}\n		memory_pool_allocator& operator="),
+    "the converting constructor does not hand off": ("family(other.family), alone(false) {\n			other.leave_alone();\n		}", "family(other.family), alone(false) {\n		}"),
+    "copy assignment does not hand off": ("				other.leave_alone();\n				family = other.family;", "				family = other.family;"),
+    "adopt links only the first block": ("				while (last->next) {\n					last = last->next;\n				}\n", ""),
+    "allocate ignores the blocks kept while alone": ("			if (free_node* block = local) {\n				local = block->next;", "			if (free_node* block = nullptr) {\n				local = block->next;"),
 }
 
 tests = ["pool", "propagation"]
