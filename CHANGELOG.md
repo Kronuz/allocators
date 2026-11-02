@@ -35,7 +35,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   blocks 26 to 31 percent slower on the i9 (0.98 and 0.94 of START, from 1.27 and 1.19), so it is not landed.
   [docs/perf/pool-fast-path.md](docs/perf/pool-fast-path.md) has the assembly, four variants on three machines and
   the next step (the allocator keeps the list head while its family has one handle); the prototype is on
-  `perf/pool-newest-slot`; the open item is [#1](https://github.com/Kronuz/allocators/issues/1).
+  `perf/pool-newest-slot`; the open item is [#1](https://github.com/Kronuz/allocators/issues/1). An allocator that
+  keeps its freed blocks while it is the only handle of its family (`perf/pool-local-head`, with its tests and
+  mutants) takes the i9 pair from 2.03 to 1.00 ns (START 0.74) and the M4 Pro's from 1.23 to 0.66 ns (START 1.16),
+  and leaves every other row at HEAD's, but it is not landed: the i9 pair is 0.75 to 0.78 of START's speed.
 
 ### Documentation
 

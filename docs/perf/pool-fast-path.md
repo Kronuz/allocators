@@ -110,15 +110,39 @@ the slot's `allocate` with HEAD's `deallocate` is as fast as HEAD, so the cost i
 pair stays 0.64 to 0.69 of START's speed even then: START's loop has the link as its only loop-carried memory,
 and a pool shared by copies cannot keep its head in a register.
 
-## Next step
+## Allocator-local head (`perf/pool-local-head`)
 
-Keep the free-list state in the allocator object while the family has one handle, and write it through to the
-family when a second handle appears (copy, rebind, destruction). The loop above then compiles as at START, and
-containers, whose allocators are always shared, take the path HEAD has now. The family needs an owner pointer
-that every other handle checks and clears, copy and move construction and assignment must flush, and `a == b`
-must keep meaning "storage from one can be freed through the other": the LIFO oracle in `test/pool.cc` (a block
-freed through one allocator is the next one handed out by any equal one) must still hold. That is a redesign of
-the allocator's lifecycle, not a patch to `pool_class`.
+The next step, built: while an allocator is the only handle of its family it keeps the blocks it frees in
+the allocator itself (`local`, newest first), and `allocate` takes from it before it asks the pool; the first copy,
+rebind, copy assignment or move hands the list to the family (`leave_alone`, which splices it in front of the
+free list in order), so the block freed last is still the next one handed out by any equal allocator.
+Containers' allocators are always copies, so they take today's path plus one load and one branch. `test/pool.cc`
+runs the model with a copy made at every position of every operation string and has a test of each way a second
+handle appears, `tools/pool_mutants.py` has seven mutants of the handoff (all caught), and the suite is clean
+under ASan, UBSan and TSan on Linux x86-64 and passes the AL1 tests.
+
+Apple clang 17.0.0, interleaved rounds with an A/A copy of START, one `quiet strict` hold per machine. ns per
+operation, ratio START/variant in parentheses:
+
+| Row | i9 START | i9 HEAD | i9 local head | M4 START | M4 HEAD | M4 local head |
+|---|--:|--:|--:|--:|--:|--:|
+| steady, one pool | 0.744 | 2.03 (0.37) | 0.999 (0.75) | 1.16 | 1.23 (0.96) | 0.663 (1.76) |
+| steady, median of 9 placements | 0.751 | 2.05 (0.37) | 0.975 (0.78) | 1.19 | 1.24 (0.97) | 0.678 (1.77) |
+| refill n=2 | 2.44 | 2.41 (1.01) | 2.13 (1.14) | 1.68 | 1.66 (0.99) | 1.58 (1.06) |
+| refill n=1,000 | 3.11 | 2.52 (1.24) | 2.44 (1.28) | 1.62 | 0.974 (1.65) | 0.984 (1.68) |
+| refill n=100,000 | 3.59 | 3.13 (1.14) | 3.10 (1.17) | 2.02 | 1.51 (1.34) | 1.52 (1.34) |
+| fresh pool n=1,000 | 3.72 | 3.01 (1.23) | 3.21 (1.16) | 2.17 | 2.12 (1.03) | 2.10 (1.04) |
+| fresh pool n=100,000 | 3.55 | 2.11 (1.68) | 2.38 (1.49) | 2.40 | 1.79 (1.35) | 1.79 (1.34) |
+| random-order frees | 17.3 | 15.6 (1.14) | 15.3 (1.13) | 8.44 | 7.88 (1.07) | 8.07 (1.06) |
+| `std::allocator` (control) | 39.8 | 39.6 (1.01) | 40.4 (0.98) | 11.6 | 11.9 (0.98) | 11.6 (1.01) |
+
+`compare_pmr` against HEAD: 0.97 to 1.11 on the i9 (geomean 1.03) and 0.996 to 1.03 on the M4 Pro. On the M4 Pro
+every row is at HEAD's within the spread and the one-block pair is 1.8 times START's speed. On the i9 the pair
+is twice as fast as HEAD and still 0.75 to 0.78 of START's speed, so it is not landed (the bar is START). What is
+left is store throughput: Apple clang 17's loop has four stores per iteration (the sink, the block's link, and two
+writes of `local` to its stack slot, which it keeps because the allocator's address escapes on the cold paths),
+START's has three, and the i9 retires one store per cycle (1.0 ns against 0.74). Merging the two writes of `local`
+(the compiler does not, across the volatile store and the `alone` test) is the next thing to try.
 
 ## Reproduce
 
