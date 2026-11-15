@@ -136,6 +136,8 @@ cmake --build build --target allocators_compare_pmr && ./build/allocators_compar
 
 ## 📚 Documentation
 
+- [The Bag of Holding](https://kronuz.github.io/blog/bag-of-holding/):
+  the Familiars post that covers `allocators` among the small helpers.
 - [docs/API.md](docs/API.md): each allocator, the pool's sharing and thread rules, the tracking
   option, and the resource and retirement targets.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the size headers, the counters and the pool.
