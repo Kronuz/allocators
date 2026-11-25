@@ -100,9 +100,9 @@ it. See [ARCHITECTURE.md](../ARCHITECTURE.md) for the accounting internals.
 
 ## Explicit resource targets
 
-Link `allocators::resources` for the headers under `allocators/`. `ByteAccount::admit` returns a move-only owning `ByteCharge`; `share()` captures the same counter state without allocating. `ChargedAllocator`, `ChargedMemoryResource`, `PagedStorage` and `OwnedBuffer` admit full upstream capacity. `AllocationContext`/`OwnedAllocator` retain PMR lifetime, including weak shared controls.
+Link `allocators::resources` for the headers under `allocators/`. `ByteAccount::admit` returns a move-only owning `ByteCharge`; `ByteCharge::absorb` takes over another charge of the same account so both refund together; `share()` captures the same counter state without allocating. `ChargedAllocator`, `ChargedMemoryResource`, `PagedStorage` and `OwnedBuffer` admit full upstream capacity. `AllocationContext`/`OwnedAllocator` retain PMR lifetime, including weak shared controls.
 
-`ReservationBook<N>` uses `ResourceVector<N>` dimensions. Its operations are `try_reserve(peak, spendable)`, `try_grow(reservation, minimum_peak, spendable_delta)`, `cancel`, `settle(reservation, additions, proved_credit)` and `reclaim(proved_credit)`. Construction accepts hard capacity and an optional complete census, including over-quota debt. Accessors return committed use, reserved use, observed peak and abandonment. Operations belong to one executor; the book outlives every capability. Failed growth changes nothing. Unresolved destruction preserves debt and prevents further admission. A reservation capability can also `abandon()` explicitly; this preserves its peak metadata and clears its reference to the book after recording abandonment.
+`ReservationBook<N>` uses `ResourceVector<N>` dimensions. Its operations are `try_reserve(peak, spendable)`, `try_grow(reservation, minimum_peak, spendable_delta)`, `cancel`, `settle(reservation, additions, proved_credit)`, `reclaim(proved_credit)` and `recount(census)`, which replaces committed use with a complete census, over-quota debt included. Construction accepts hard capacity and an optional complete census, including over-quota debt. Accessors return committed use, reserved use, observed peak and abandonment. Operations belong to one executor; the book outlives every capability. Failed growth changes nothing. Unresolved destruction preserves debt and prevents further admission. A reservation capability can also `abandon()` explicitly; this preserves its peak metadata and clears its reference to the book after recording abandonment.
 
 Link optional `allocators::retirement` for caller-owned `RetirementRuntime`, `RetirementDomain`, `RetirementFactory` and intrusive `RetirementHandle<T>`. A payload derives from `RetirementNode` and may implement bounded `retire_step()`/`retry_later()` cleanup. Close admission, release all accepted originals and handles, then wait for the drain before shutting down the runtime.
 
@@ -159,6 +159,6 @@ drain.wait();
 runtime.shutdown();
 ```
 
-Retirement handles release through an intrusive queue. Payload destruction and control-block
+Retirement handles release through an intrusive queue. [Retirement wakeups](retirement-wakeup.md) states why the worker never sleeps on a domain that can drain. Payload destruction and control-block
 release run on the fixed cleanup worker. Keep the runtime alive until every domain drains, and
 retain accepted I/O owners until authentic completion before retiring them.

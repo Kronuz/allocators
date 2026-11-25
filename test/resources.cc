@@ -54,6 +54,26 @@ void reservations() {
 	}
 	for (auto &slot : slots) if (slot) { book.cancel(*slot); slot.reset(); }
 	check(book.reserved() == V{});
+	{
+		// recount: a census replaces used, raises the peak with the live reservations, keeps over-quota debt.
+		ReservationBook<2> counted(hard, V{{10, 1}});
+		auto held = counted.try_reserve(V{{30, 3}}, hard);
+		check(held.has_value() && counted.peak() == (V{{40, 4}}));
+		counted.recount(V{{50, 2}});
+		check(counted.used() == (V{{50, 2}}) && counted.reserved() == (V{{30, 3}}) && counted.peak() == (V{{80, 5}}));
+		counted.cancel(*held);
+		counted.recount(V{{5, 0}});
+		check(counted.used() == (V{{5, 0}}) && counted.reserved() == V{} && counted.peak() == (V{{80, 5}}));
+		counted.recount(V{{250, 30}});
+		check(counted.used() == (V{{250, 30}}) && !counted.try_reserve(V{{1, 0}}, hard));
+		constexpr auto top = std::numeric_limits<std::uint64_t>::max();
+		ReservationBook<2> wide(V{{top, top}});
+		auto one = wide.try_reserve(V{{1, 0}}, wide.hard());
+		bool overflowed = false;
+		try { wide.recount(V{{top, 0}}); } catch (const std::overflow_error &) { overflowed = true; }
+		check(one.has_value() && overflowed && wide.used() == V{} && wide.peak() == (V{{1, 0}}));
+		wide.cancel(*one);
+	}
 	ReservationBook<2> over(hard, V{{201, 21}});
 	check(!over.try_reserve(V{}, hard));
 	over.reclaim(V{{1, 1}});
@@ -111,6 +131,26 @@ void hierarchy() {
 	{ ByteAccount local(4096); pages = std::make_unique<PagedStorage>(local, 128); }
 	(void)pages->allocate(256);
 	pages.reset();
+	{
+		// absorb: charges of one account refund together; another account's are refused and refunded.
+		auto ledger = std::make_shared<ByteAccount>(100);
+		ByteAccount other(100), alias = ledger->share();
+		auto charged = ledger->admit(10);
+		charged.absorb(alias.admit(30));
+		check(charged.bytes() == 40 && ledger->used() == 40);
+		ByteCharge empty;
+		empty.absorb(ledger->admit(5));
+		empty.absorb(ByteCharge{});
+		check(empty.bytes() == 5 && ledger->used() == 45);
+		bool refused = false;
+		try { charged.absorb(other.admit(1)); } catch (const std::invalid_argument &) { refused = true; }
+		check(refused && charged.bytes() == 40 && other.used() == 0);
+		ledger.reset();
+		charged.reset();
+		check(empty.bytes() == 5);
+		empty.reset();
+		check(empty.bytes() == 0);
+	}
 }
 void concurrency() {
 	auto root = std::make_shared<ByteAccount>(32);

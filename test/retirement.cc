@@ -76,6 +76,99 @@ struct Pause {
 			std::this_thread::yield();
 	}
 };
+using Point = d::detail::RetirementPoint;
+const char *name(Point point) {
+	switch (point) {
+	case Point::close_handoff:
+		return "close handoff";
+	case Point::rollback_handoff:
+		return "rollback handoff";
+	case Point::worker_admission:
+		return "worker before its admission load";
+	case Point::worker_admitted:
+		return "worker after its admission load";
+	}
+	return "unknown point";
+}
+// Holds a producer between its wake and its final handoff until the worker is
+// parked at one point of a pass that began after that wake was consumed, then
+// lets the handoff land while the worker stays parked there.
+struct Interleave {
+	Point handoff, worker;
+	std::atomic<bool> woken{false}, parked{false}, landed{false}, stuck{false};
+	std::atomic<unsigned> passes{0};
+	Interleave(Point producer, Point point) : handoff(producer), worker(point) {}
+	void await(const std::atomic<bool> &flag) noexcept {
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (!flag.load(std::memory_order_acquire)) {
+			if (std::chrono::steady_clock::now() >= deadline) {
+				stuck.store(true);
+				return;
+			}
+			std::this_thread::yield();
+		}
+	}
+	static void hook(void *context, Point point) noexcept {
+		auto &self = *static_cast<Interleave *>(context);
+		if (point == self.handoff && !self.woken.exchange(true, std::memory_order_acq_rel))
+			self.await(self.parked);
+		// The first pass to see the wake may have begun before consuming it.
+		else if (point == self.worker && self.woken.load(std::memory_order_acquire) &&
+				 self.passes.fetch_add(1, std::memory_order_relaxed) == 1) {
+			self.parked.store(true, std::memory_order_release);
+			self.await(self.landed);
+		}
+	}
+};
+// Lands a close, or the rollback of a constructor admitted before close, while
+// the worker is parked at `worker`; the domain must still drain.
+bool drains_across(const std::shared_ptr<d::ByteAccount> &baseline,
+				   const std::shared_ptr<d::ByteAccount> &account, Point handoff, Point worker) {
+	Interleave plan(handoff, worker);
+	d::RetirementRuntime runtime(baseline, 1);
+	auto domain = runtime.domain(account);
+	d::detail::RetirementTesting::interleave(domain, Interleave::hook, &plan);
+	std::optional<d::RetirementDrain> drain;
+	if (handoff == Point::close_handoff)
+		drain = domain.close();
+	else {
+		Pause gate;
+		struct Failing : d::RetirementNode {
+			explicit Failing(Pause &gate) {
+				Pause::hook(&gate);
+				throw std::runtime_error("rolled back constructor");
+			}
+		};
+		struct Unpause {
+			Pause &pause;
+			~Unpause() { pause.release.store(true, std::memory_order_release); }
+		} unpause{gate};
+		JoiningThread constructor([&] {
+			try {
+				domain.make<Failing>(gate);
+			} catch (const std::runtime_error &) {
+			}
+		});
+		eventually([&] { return gate.entered.load(std::memory_order_acquire); });
+		drain = domain.close();
+		gate.release.store(true, std::memory_order_release);
+		constructor.join();
+	}
+	plan.landed.store(true, std::memory_order_release);
+	const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (!drain->done() && std::chrono::steady_clock::now() < deadline)
+		std::this_thread::yield();
+	if (plan.stuck.load() || !plan.parked.load()) {
+		std::cerr << name(handoff) << " at " << name(worker) << ": interleaving not reached\n";
+		return false;
+	}
+	if (!drain->done()) {
+		std::cerr << name(handoff) << " at " << name(worker) << ": lost wakeup, drain pending with "
+				  << domain.residents() << " residents\n";
+		return false;
+	}
+	return true;
+}
 int main() {
 	try {
 		auto baseline = std::make_shared<d::ByteAccount>(1024 * 1024);
@@ -325,6 +418,13 @@ int main() {
 			require(runtime.occupied_domains() == 0 && !wrong_thread.load());
 		}
 		require(baseline->used() == 0 && account->used() == 0);
+		// Every final handoff that can land inside the worker's pass, at both
+		// points of that pass, leaves a drainable domain the worker revisits.
+		bool interleaved = true;
+		for (auto handoff : {Point::close_handoff, Point::rollback_handoff})
+			for (auto worker : {Point::worker_admission, Point::worker_admitted})
+				interleaved &= drains_across(baseline, account, handoff, worker);
+		require(interleaved && baseline->used() == 0 && account->used() == 0);
 		{
 			auto tiny = std::make_shared<d::ByteAccount>(512);
 			bool refused = false;

@@ -39,9 +39,13 @@ void admit_resident(RetirementState &);
 void undo_resident(RetirementState &) noexcept;
 std::shared_ptr<ByteAccount> retirement_account(RetirementState &);
 void bind_retirement(RetirementNode &, RetirementState &, void (*)(RetirementNode *) noexcept) noexcept;
-// Qualification hook: install before exposing owners, never concurrently.
+// Points where a test can hold a producer between its wake and its final
+// handoff, or the worker inside its pass over one domain.
+enum class RetirementPoint { close_handoff, rollback_handoff, worker_admission, worker_admitted };
+// Qualification hooks: install before exposing owners, never concurrently.
 struct RetirementTesting {
 	static void before_ready(RetirementDomain &, void (*)(void *) noexcept, void *);
+	static void interleave(RetirementDomain &, void (*)(void *, RetirementPoint) noexcept, void *);
 };
 } // namespace detail
 

@@ -130,6 +130,11 @@ template <std::size_t N> class ReservationBook {
 		reservation.book_ = nullptr;
 	}
 	void reclaim(Vector proved_credit) { used_ = used_.subtracted(proved_credit); }
+	// Replaces used with a complete census of what exists, over-quota debt included.
+	void recount(Vector census) {
+		observe(census.added(reserved_));
+		used_ = census;
+	}
 	Vector used() const noexcept { return used_; }
 	Vector reserved() const noexcept { return reserved_; }
 	Vector peak() const noexcept { return peak_; }
@@ -184,6 +189,15 @@ class ByteCharge {
 	}
 	~ByteCharge() { reset(); }
 	std::size_t bytes() const noexcept { return bytes_; }
+	// Takes over `other`'s bytes, admitted by the same account, to be refunded together.
+	void absorb(ByteCharge &&other) {
+		if (!other.state_) return;
+		if (state_ && state_ != other.state_)
+			throw std::invalid_argument("byte charges of different accounts");
+		if (!state_) state_ = std::move(other.state_);
+		else other.state_.reset();
+		bytes_ += std::exchange(other.bytes_, 0);
+	}
 	void reset() noexcept {
 		for (auto state = state_.get(); state; state = state->parent.get())
 			state->used.fetch_sub(bytes_, std::memory_order_relaxed);

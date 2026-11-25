@@ -5,6 +5,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Upgrading a pin from before 2026-10-30: [the consumer upgrade note](https://github.com/Kronuz/cpp-libraries/blob/main/docs/UPGRADING-2026-10.md#allocators) lists what changes for callers, how to find affected inputs, the commits not to pin, and the speedup.
 
+## 2026-11-25
+
+### Fixed
+
+- The retirement worker decided a domain's drainage from one `admission` load and its pending state from a
+  second: a close or rollback handoff landing between the two, after the worker consumed its wake, left the worker
+  in `poll(-1)` beside a drainable domain. `RetirementState::step` now loads `rolling_back` and `closing`, then
+  `admission` once, and decides both from those values ([retirement wakeups](docs/retirement-wakeup.md)).
+  `RetirementTesting::interleave` holds a producer or the worker at four `RetirementPoint`s; `test/retirement.cc`
+  lands each handoff at both worker points and requires the drain.
+
+### Added
+
+- `ByteCharge::absorb` takes over another charge of the same account, refunded together; another account's charge
+  is refused with `std::invalid_argument`.
+- `ReservationBook::recount(census)` replaces committed use with a complete census and raises the peak with the live
+  reservations, for owners whose census, not a settlement delta, is the truth.
+
 ## 2026-11-01
 
 ### Fixed

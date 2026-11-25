@@ -100,6 +100,8 @@ struct RetirementState {
 	std::atomic<bool> drained{false};
 	void (*handoff_hook)(void *) noexcept = nullptr;
 	void *handoff_context = nullptr;
+	std::atomic<void (*)(void *, RetirementPoint) noexcept> interleave_hook{nullptr};
+	void *interleave_context = nullptr;
 	RetirementState(RetirementRuntimeState *runner, std::shared_ptr<ByteAccount> ledger, std::size_t owners)
 		: runtime(runner), account(std::move(ledger)), limit(owners) {}
 	static void push(RetirementNode *node, RetirementNode *&head, RetirementNode *&tail) noexcept {
@@ -119,7 +121,11 @@ struct RetirementState {
 		}
 		return node;
 	}
-	bool step(bool &work) noexcept {
+	void at(RetirementPoint point) noexcept {
+		if (auto hook = interleave_hook.load(std::memory_order_acquire))
+			hook(interleave_context, point);
+	}
+	bool step(bool &work, bool &pending) noexcept {
 		for (unsigned i = 0; i < 8 && retry; ++i)
 			push(pop(retry, retry_tail), runnable, runnable_tail);
 		if (auto head = incoming.exchange(nullptr, std::memory_order_acquire)) {
@@ -154,9 +160,18 @@ struct RetirementState {
 			destroy(node);
 			admission.fetch_sub(1, std::memory_order_acq_rel);
 		}
-		return admission.load(std::memory_order_acquire) == closed &&
-			   rolling_back.load(std::memory_order_acquire) == 0 && !waiting && !runnable && !retry &&
-			   !incoming.load(std::memory_order_acquire);
+		// One admission load decides, after the markers its producers set before
+		// their wake: a handoff it misses is pending here or has its wake unread.
+		const auto rollbacks = rolling_back.load(std::memory_order_acquire);
+		const bool closing_seen = closing.load(std::memory_order_acquire);
+		at(RetirementPoint::worker_admission);
+		const auto admitted = admission.load(std::memory_order_acquire);
+		at(RetirementPoint::worker_admitted);
+		if (admitted == closed && !rollbacks && !waiting && !runnable && !retry &&
+			!incoming.load(std::memory_order_acquire))
+			return true;
+		pending |= waiting || retry || rollbacks || (closing_seen && !(admitted & closed));
+		return false;
 	}
 };
 
@@ -212,13 +227,8 @@ struct RetirementRuntimeState {
 				auto &domain = pass[i];
 				if (!domain)
 					continue;
-				if (!domain->step(work)) {
-					pending |= domain->waiting != nullptr || domain->retry != nullptr ||
-							   domain->rolling_back.load(std::memory_order_acquire) != 0 ||
-							   (domain->closing.load(std::memory_order_acquire) &&
-								!(domain->admission.load(std::memory_order_acquire) & closed));
+				if (!domain->step(work, pending))
 					continue;
-				}
 				work = true;
 				{
 					std::lock_guard lock(registry_mutex);
@@ -292,6 +302,7 @@ void undo_resident(RetirementState &state) noexcept {
 	// periodic fallback active across the wake and final handoff to drainage.
 	state.rolling_back.fetch_add(1, std::memory_order_acq_rel);
 	state.runtime->wake.signal();
+	state.at(RetirementPoint::rollback_handoff);
 	state.admission.fetch_sub(1, std::memory_order_acq_rel);
 	state.rolling_back.fetch_sub(1, std::memory_order_release);
 	// No runtime access follows the final rollback handoff.
@@ -307,6 +318,13 @@ void RetirementTesting::before_ready(RetirementDomain &domain, void (*hook)(void
 		throw std::logic_error("retirement hook requires an empty domain");
 	domain.state_->handoff_hook = hook;
 	domain.state_->handoff_context = context;
+}
+void RetirementTesting::interleave(RetirementDomain &domain, void (*hook)(void *, RetirementPoint) noexcept,
+								   void *context) {
+	if (!domain.state_ || domain.residents())
+		throw std::logic_error("retirement hook requires an empty domain");
+	domain.state_->interleave_context = context;
+	domain.state_->interleave_hook.store(hook, std::memory_order_release);
 }
 } // namespace allocators::detail
 
@@ -379,6 +397,7 @@ RetirementDrain RetirementDomain::close() noexcept {
 		if (!(state_->admission.load(std::memory_order_acquire) & detail::closed)) {
 			state_->closing.store(true, std::memory_order_release);
 			state_->runtime->wake.signal();
+			state_->at(detail::RetirementPoint::close_handoff);
 			state_->admission.fetch_or(detail::closed, std::memory_order_acq_rel);
 		}
 	}
