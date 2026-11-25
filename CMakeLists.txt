@@ -115,6 +115,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   # reuse, refill, fresh pools, random-order frees), one "row value ns" line per row.
   add_executable(allocators_pool_bench bench/pool_bench.cc)
   target_link_libraries(allocators_pool_bench PRIVATE allocators)
+  # Benchmark, not a test: the resource accounting hot paths (admission, charged allocators, PMR,
+  # paged storage), single-threaded and contended.
+  add_executable(allocators_resources_bench bench/resources_bench.cc)
+  target_link_libraries(allocators_resources_bench PRIVATE allocators::resources Threads::Threads)
 
   # The pool against std::pmr resources (std::allocator, unsynchronized_pool_resource,
   # monotonic_buffer_resource). Standard library only; not built by default.
@@ -149,6 +153,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   if(NOT ALLOCATORS_TRACKED_MEM)
     target_compile_definitions(allocators_test PRIVATE ALLOCATORS_EXPECT_TRACKED=0)
   endif()
+
+  # Benchmark, not a test: the tracked global new and delete, small blocks from several threads.
+  add_executable(allocators_tracked_bench bench/tracked_bench.cc)
+  target_link_libraries(allocators_tracked_bench PRIVATE allocators_tracked Threads::Threads)
 
   add_executable(allocators_demo examples/demo.cc)
   target_link_libraries(allocators_demo PRIVATE allocators_tracked)
